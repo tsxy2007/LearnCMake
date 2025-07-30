@@ -1,0 +1,26 @@
+{
+    "C_Cpp.intelliSenseEngine": "disabled",  // 禁用默认引擎
+    "clangd.arguments": [
+        "--background-index",
+        "--clang-tidy",
+        "--completion-style=detailed",
+        "--header-insertion=iwyu",
+        "--query-driver=/usr/bin/clang++"
+    ],
+    "clangd.path": "/usr/bin/clangd",
+    "clangd.onConfigChanged": "restart",
+    "clangd.checkUpdates": true,
+    "cmake.configureArgs": [
+        "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+    ],
+    "files.associations": {
+        "*.cu": "cpp",
+        "*.cuh": "cpp"
+    },
+    "editor.quickSuggestions": {
+        "other": true,
+        "comments": true,
+        "strings": true
+    },
+    "cmake.buildDirectory": "${workspaceFolder}/build"
+}
