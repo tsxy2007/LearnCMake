@@ -115,6 +115,5 @@ int main(int argc,char** argv)
     cudaFree(d_B.Data);
     cudaFree(d_C.Data);
     
-
     return 0;
 }
