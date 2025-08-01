@@ -11,3 +11,6 @@ cuda 向量的相加
 
 ## Learn004
 cuda 矩阵的相乘
+
+## Learn005
+cuda reduce累加
