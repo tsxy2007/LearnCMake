@@ -6,7 +6,7 @@
 * Reduce 算法
 */
 
-#define mBlockNum 256
+#define mBlockNum 32
 __global__ void Reduce(unsigned int* A,unsigned int* Out){
     __shared__ int sdata[mBlockNum];
     unsigned int i = threadIdx.x + blockIdx.x* blockDim.x;
@@ -35,7 +35,7 @@ int main(int argc , char** argv)
     unsigned int* h_A = (unsigned int*)malloc(size);
     unsigned int* h_Out = (unsigned int*)malloc(size);
 
-    for (int i; i<num;i++) {
+    for (int i = 0; i<num;i++) {
         h_A[i] = i+1;
     }
 
