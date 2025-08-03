@@ -40,11 +40,6 @@ int main(int argc, char* argv)
 		h_Input[i] = i + 1;
 	}
 
-	//for (int i = 0; i < Num; i++)
-	//{
-	//	printf("Value = %f", h_Input[i]);
-	//}
-
 	float* d_Input;
 	auto err = cudaMalloc(&d_Input, size);
 	err = cudaMemcpy(d_Input, h_Input, size, cudaMemcpyKind::cudaMemcpyHostToDevice);
