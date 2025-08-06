@@ -28,9 +28,9 @@ __global__ void reduce(float* Input, float* Out)
 	}
 }
 
-int main(int argc, char* argv)
+int main(int argc, char** argv)
 {
-	printf("Œ“ «Learn006!\n");
+	printf("Learn006!\n");
 
 	int Num = 100;
 	int size = Num * sizeof(float);
@@ -49,14 +49,14 @@ int main(int argc, char* argv)
 
 	float* d_Out;
 	int Size_Out = GridNum * sizeof(float);
-	cudaMalloc(&d_Out, Size_Out);
+	err = cudaMalloc(&d_Out, Size_Out);
 
 	reduce << <GridNum, blockNum >> > (d_Input, d_Out);
 
 	float* h_Out = (float*)malloc(Size_Out);
-	cudaMemcpy(h_Out, d_Out, Size_Out, cudaMemcpyKind::cudaMemcpyDeviceToHost);
+	err = cudaMemcpy(h_Out, d_Out, Size_Out, cudaMemcpyKind::cudaMemcpyDeviceToHost);
 
-	cudaDeviceSynchronize();
+	err = cudaDeviceSynchronize();
 	float Value = 0.f;
 	for (int i = 0; i < GridNum; i++)
 	{
@@ -64,6 +64,6 @@ int main(int argc, char* argv)
 	}
 
 
-	printf("The Result is = %f", Value);
+	printf("The Result is = %f\n", Value);
 	return 0;
 }
