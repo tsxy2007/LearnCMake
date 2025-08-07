@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+file(GLOB SubSrc ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+add_library(Sub STATIC ${SubSrc})
+target_include_directories(Sub PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(Sub PRIVATE common)

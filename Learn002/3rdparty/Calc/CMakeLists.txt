@@ -1,0 +1,5 @@
+file(GLOB mysrc ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
+add_library(Calc STATIC ${mysrc})
+target_include_directories(Calc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(Calc PRIVATE Sub)
+target_link_libraries(Calc PRIVATE Add)
