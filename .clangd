@@ -10,6 +10,8 @@ CompileFlags:
     - "-I/usr/include/x86_64-linux-gnu/c++/11"
     - "-I/usr/local/cuda-12.9/include"
     - "-I/usr/local/cuda-12.9/targets/x86_64-linux/include"
+    - "-I/usr/local/cuda-12.4/include"
+    - "-I/usr/local/cuda-12.4/targets/x86_64-linux/include"
   Remove: 
     - -m*
     - -f*
