@@ -17,3 +17,6 @@ cuda reduce累加
 
 ## Learn006
 再次实现reduce累加
+
+## Learn007
+新的cpp组织结构

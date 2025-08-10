@@ -1,7 +1,7 @@
 #include <cuda_runtime.h>
 #include <cstdio>
 
-#define BLOCKNUM 32
+#define BLOCKNUM 256
 
 __global__ void reduce(float* Input, float* Out)
 {
@@ -9,14 +9,14 @@ __global__ void reduce(float* Input, float* Out)
 	int Index = threadIdx.x + blockIdx.x * blockDim.x;
 	int tid = threadIdx.x;
 	sdata[tid] = Input[Index];
-	//printf("input value = %f \n", Input[Index]);
+	printf("input value = %f \n", Input[Index]);
 	__syncthreads();
 
 	for (int i = 1; i < blockDim.x; i *= 2)
 	{
 		if (tid % (2 * i) == 0) {
 			sdata[tid] += sdata[tid + i];
-			//printf("add value = %f\n", sdata[tid]);
+			printf("add value = %f\n", sdata[tid]);
 		}
 		__syncthreads();
 	}
@@ -24,7 +24,7 @@ __global__ void reduce(float* Input, float* Out)
 	if (tid == 0)
 	{
 		Out[blockIdx.x] = sdata[tid];
-		//printf("Out Value [%d] = %f \n", blockIdx.x, sdata[tid]);
+		printf("Out Value [%d] = %f \n", blockIdx.x, sdata[tid]);
 	}
 }
 
