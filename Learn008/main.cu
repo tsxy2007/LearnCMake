@@ -70,6 +70,16 @@ void printDeviceInfo() {
         std::cout << "  每个多处理器的CUDA核心数: " << getCudaCores(prop.major, prop.minor, prop.multiProcessorCount) << std::endl;
         std::cout << "  最大线程块尺寸: " << prop.maxThreadsPerBlock << std::endl;
         std::cout << "  最大网格尺寸: " << prop.maxGridSize[0] << "x" << prop.maxGridSize[1] << "x" << prop.maxGridSize[2] << std::endl;
+
+        std::cout << "每个 block 最大线程数: " << prop.maxThreadsPerBlock << std::endl;
+        std::cout << "grid 最大维度 (x, y, z): " 
+              << prop.maxGridSize[0] << ", " 
+              << prop.maxGridSize[1] << ", " 
+              << prop.maxGridSize[2] << std::endl;
+        std::cout << "block 最大维度 (x, y, z): " 
+              << prop.maxThreadsDim[0] << ", " 
+              << prop.maxThreadsDim[1] << ", " 
+              << prop.maxThreadsDim[2] << std::endl;
     }
     std::cout << std::endl;
 }
