@@ -18,7 +18,7 @@
         } \
     } while (0)
 
-vec3 color(const ray& r){
+__host__ __device__ vec3 color(const ray& r){
     vec3 unit_direction = unit_vector(r.direction());
     float t = 0.5 * (unit_direction.y() + 1.0);
     return  vec3(1.0f,1.0f,1.0f) * (1.0-t) +  vec3(0.5,0.7,1.0) * t;
