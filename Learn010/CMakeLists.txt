@@ -1,0 +1,1 @@
+add_executable(Learn010 main.cu)
