@@ -101,6 +101,8 @@ __global__ void init_rand(curandState* rand_states, int width, int height) {
     
     int idx = j * width + i;
     curand_init(1984 + idx, 0, 0, &rand_states[idx]);
+
+    // printf("init_rand = rand_states[%d]",idx);
 }
 
 // 生成随机向量
@@ -175,11 +177,12 @@ __global__ void render(vec3* framebuffer, int width, int height,
     int i = threadIdx.x + blockIdx.x * blockDim.x; // 列
     int j = threadIdx.y + blockIdx.y * blockDim.y; // 行
     
+    // printf("render i = [%d];j=[%d];width=[%d],height=[%d]\n",i,j,width,height);
     if (i >= width || j >= height) return;
-    
+    // printf("render -----------1\n");
     int idx = j * width + i;
     curandState local_rand_state = rand_states[idx];
-    
+    // printf("render -----------2\n");
     vec3 color(0, 0, 0);
     
     // 相机参数
@@ -188,7 +191,7 @@ __global__ void render(vec3* framebuffer, int width, int height,
     vec3 vup(0, 1, 0);
     float dist_to_focus = 10.0f;
     float aperture = 0.1f;
-    
+    // printf("render -----------3\n");
     // 相机坐标系
     vec3 w = (lookfrom - lookat).normalize();
     vec3 u = vup.cross(w).normalize();
@@ -201,7 +204,7 @@ __global__ void render(vec3* framebuffer, int width, int height,
     vec3 horizontal = u * viewport_width;
     vec3 vertical = v * viewport_height;
     vec3 lower_left_corner = lookfrom - horizontal / 2.0f - vertical / 2.0f - w;
-    
+    // printf("render -----------4 samples_per_pixel = %d\n",samples_per_pixel);
     // 抗锯齿：每个像素采样多个光线
     for (int s = 0; s < samples_per_pixel; s++) {
         float u_coord = (i + curand_uniform(&local_rand_state)) / (width - 1.0f);
@@ -210,7 +213,7 @@ __global__ void render(vec3* framebuffer, int width, int height,
         ray r(lookfrom, lower_left_corner + horizontal * u_coord + vertical * v_coord - lookfrom);
         color += ray_color(r, world, world_size, &local_rand_state, max_depth);
     }
-    
+    // printf("render -----------5\n");
     // 平均采样结果
     color /= samples_per_pixel;
     
@@ -218,6 +221,7 @@ __global__ void render(vec3* framebuffer, int width, int height,
     color.x = sqrt(color.x);
     color.y = sqrt(color.y);
     color.z = sqrt(color.z);
+    // printf(" i = [%d] , j = [%d] ; Color = [%f][%f][%f]\n",i,j,color.x,color.y,color.z);
     
     framebuffer[idx] = color;
 }
@@ -243,12 +247,19 @@ void write_ppm(const std::string& filename, const vec3* framebuffer, int width, 
     out.close();
 }
 
+// 核函数，接收一个整数参数
+__global__ void kernel(int value) {
+    // 在设备端打印接收的参数值
+    printf("Device received: %d\n", value);
+}
+
+
 int main() {
     // 图像参数
     const int width = 800;
     const int height = 600;
     const int samples_per_pixel = 100; // 每个像素的采样数，影响抗锯齿效果
-    const int max_depth = 50; // 光线最大递归深度
+    const int max_depth = 1; // 光线最大递归深度
     
     // 分配帧缓冲区
     vec3* framebuffer = new vec3[width * height];
@@ -273,10 +284,13 @@ int main() {
     curandState* d_rand_states;
     cudaMalloc(&d_rand_states, width * height * sizeof(curandState));
     
-    dim3 block_dim(16, 16);
+    dim3 block_dim(32, 16);
     dim3 grid_dim((width + block_dim.x - 1) / block_dim.x, 
                  (height + block_dim.y - 1) / block_dim.y);
     
+    kernel<<<1,1>>>(100);
+    cudaDeviceSynchronize();
+
     init_rand<<<grid_dim, block_dim>>>(d_rand_states, width, height);
     cudaDeviceSynchronize();
     
@@ -285,6 +299,9 @@ int main() {
     render<<<grid_dim, block_dim>>>(d_framebuffer, width, height, d_world, world_size, 
                                    d_rand_states, samples_per_pixel, max_depth);
     cudaDeviceSynchronize();
+    
+    auto err = cudaGetLastError();  // 此时可捕获执行阶段的错误
+    printf("Error is %d \n",err);
     
     // 将结果从设备内存拷贝到主机内存
     cudaMemcpy(framebuffer, d_framebuffer, width * height * sizeof(vec3), cudaMemcpyDeviceToHost);
