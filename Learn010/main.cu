@@ -1,8 +1,18 @@
-#include <iostream>
-#include <fstream>
-#include <cuda_runtime.h>  
+﻿#include <cuda_runtime.h>  
 #include <curand_kernel.h>  
 #include <cmath>
+#include <iostream>
+#include <fstream>
+
+// 检查 CUDA 操作是否成功
+#define CHECK(call) \
+    do { \
+        cudaError_t err = call; \
+        if (err != cudaSuccess) { \
+            std::cerr << "Error: " << cudaGetErrorString(err) << " at line " << __LINE__ << std::endl; \
+            exit(EXIT_FAILURE); \
+        } \
+    } while (0)
 
 // 向量类，用于表示3D空间中的点、方向等
 struct vec3 {
@@ -10,6 +20,7 @@ struct vec3 {
     
     __host__ __device__  vec3() : x(0), y(0), z(0) {}
     __host__ __device__  vec3(float x, float y, float z) : x(x), y(y), z(z) {}
+    __host__ __device__  ~vec3() {}
     
     __host__ __device__  vec3 operator-() const { return vec3(-x, -y, -z); }
     __host__ __device__  vec3 operator+(const vec3& v) const { return vec3(x + v.x, y + v.y, z + v.z); }
@@ -160,8 +171,8 @@ __device__  vec3 ray_color(const ray& r, const sphere* world, int world_size, cu
         ray scattered = ray(p, scatter_dir);
         
         // 递归计算反射光线颜色
-        return world[hit_index].color * world[hit_index].albedo * 
-               ray_color(scattered, world, world_size, rand_state, depth - 1);
+        return  world[hit_index].color * world[hit_index].albedo * 
+           ray_color(scattered, world, world_size, rand_state, depth - 1);
     }
     
     // 背景色 - 渐变天空
@@ -189,8 +200,8 @@ __global__ void render(vec3* framebuffer, int width, int height,
     vec3 lookfrom(0, 0, 0);
     vec3 lookat(0, 0, -1);
     vec3 vup(0, 1, 0);
-    float dist_to_focus = 10.0f;
-    float aperture = 0.1f;
+    // float dist_to_focus = 10.0f;
+    // float aperture = 0.1f;
     // printf("render -----------3\n");
     // 相机坐标系
     vec3 w = (lookfrom - lookat).normalize();
@@ -255,11 +266,25 @@ __global__ void kernel(int value) {
 
 
 int main() {
+
+     // 1. 设置设备（若多GPU，需指定目标设备）
+    CHECK(cudaSetDevice(0));  // 使用第0块GPU
+
+    // 2. 查询当前栈大小限制
+    size_t currentStackSize;
+    CHECK(cudaDeviceGetLimit(&currentStackSize, cudaLimitStackSize));
+    std::cout << "默认栈大小: " << currentStackSize << " 字节" << std::endl;
+
+    // 3. 设置新的栈大小（例如 64KB）
+    size_t newStackSize = 64 * 1024;  // 64KB
+    CHECK(cudaDeviceSetLimit(cudaLimitStackSize, newStackSize));
+    std::cout << "已设置栈大小: " << newStackSize << " 字节" << std::endl;
+
     // 图像参数
-    const int width = 800;
-    const int height = 600;
+    const int width = 4960;
+    const int height = 4960;
     const int samples_per_pixel = 100; // 每个像素的采样数，影响抗锯齿效果
-    const int max_depth = 1; // 光线最大递归深度
+    const int max_depth = 100; // 光线最大递归深度
     
     // 分配帧缓冲区
     vec3* framebuffer = new vec3[width * height];
@@ -301,8 +326,8 @@ int main() {
     cudaDeviceSynchronize();
     
     auto err = cudaGetLastError();  // 此时可捕获执行阶段的错误
-    printf("Error is %d \n",err);
-    
+    printf("Error is %d \n",err); // 打印错误码
+
     // 将结果从设备内存拷贝到主机内存
     cudaMemcpy(framebuffer, d_framebuffer, width * height * sizeof(vec3), cudaMemcpyDeviceToHost);
     
@@ -311,6 +336,8 @@ int main() {
     std::cout << "渲染完成，图像已保存为 cuda_raytrace.ppm" << std::endl;
     
     // 释放内存
+    delete[] framebuffer;
+    framebuffer = nullptr;
     delete[] framebuffer;
     delete[] world;
     cudaFree(d_framebuffer);
