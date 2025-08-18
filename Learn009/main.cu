@@ -10,6 +10,7 @@
 #include "ray.h"
 #include "hitable_list.h"
 #include "sphere.h"
+#include "camera.h"
 
 #define BLOCKNUM 32
 
@@ -92,22 +93,31 @@ __global__ void MakeColor(sphere* input_list,int size ,vec3* OutColor,int width,
     vec3 horizontal(4.0f,0.f,0.f);
     vec3 vertical(0.f,2.f,0.f);
     vec3 origin(0.f,0.f,0.f);
+    camera cam;
 
     int Index = j * width  +  i;
 
-    float u = float(i) / float(width);
-    float v = float(j) / float(height);
+    // float u = float(i) / float(width);
+    // float v = float(j) / float(height);
 
     hitable_list hlist(input_list,size);
 
-    
+    int ns = 100;
 
-    vec3 direct = (lower_left_corner + horizontal * u + vertical * v - origin);
-    ray r(origin,direct);
-    auto tColor = color_hit(r, hlist);
-    OutColor[Index].x = tColor.x;
-    OutColor[Index].y = tColor.y;
-    OutColor[Index].z = tColor.z;
+    vec3 col(0.f,0.f,0.f);
+    for (int s = 0; s < ns; s++)
+    {
+        float u = float(i + 1) / float(width);
+        float v = float(j + 1) / float(height);
+        ray camRay = cam.get_ray(u,v);
+        vec3 p = camRay.point_at_parameter(2.0);
+        col += color(camRay);
+    }
+
+    col /= float(ns);
+    OutColor[Index].x = col.x;
+    OutColor[Index].y = col.y;
+    OutColor[Index].z = col.z;
 }
 
 // 将帧缓冲区数据写入PPM文件
