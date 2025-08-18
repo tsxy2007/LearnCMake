@@ -1,10 +1,15 @@
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <fstream>
 #include <ostream>
+#include <sys/select.h>
+#include "hitable.h"
 #include "vec3.h"
 #include "ray.h"
+#include "hitable_list.h"
+#include "sphere.h"
 
 #define BLOCKNUM 32
 
@@ -18,34 +23,63 @@
         } \
     } while (0)
 
-__host__ __device__ bool hit_sphere(const vec3& center, float radius, const ray& r)
+__host__ __device__ bool equals(float a, float b)
+{
+    return fabs(a - b) < 0.000001;
+}
+
+__host__ __device__ float hit_sphere(const vec3& center, float radius, const ray& r)
  {
     vec3 oc = r.origin() - center;
     float a = dot(r.direction(), r.direction());
     float b = 2.0f * dot(oc,r.direction());
     float c = dot(oc,oc) - radius * radius;
     float discriminant = b * b - 4 * a * c;  
-    return (discriminant > 0);
-}
-
-__host__ __device__ bool equals(float a, float b)
-{
-    return fabs(a - b) < 0.000001;
+    if (discriminant < 0) 
+    {
+        return -1.f;
+    }
+    else 
+    {
+        return (-b - sqrt(discriminant)) / (2.0 * a);
+    }
 }
 
 __host__ __device__ vec3 color(const ray& r)
 {
-    if (hit_sphere(vec3(0,0,-1),0.5,r)){
-        return vec3(1,0,0);
+    vec3 center = vec3(0,0,-1);
+    float t = hit_sphere(center,0.5,r);
+    if ( t > 0.f )
+    {
+        vec3 N = unit_vector(r.point_at_parameter(t) - center);
+        return vec3(N.x + 1 , N.y + 1 , N.z + 1) * 0.5;
     }
-    else {  
+    else 
+    {  
+        vec3 unit_direction = unit_vector(r.direction());
+        t = 0.5 * (unit_direction.y + 1.0);
+        return  vec3(1.0f,1.0f,1.0f) * (1.0-t) +  vec3(0.5,0.7,1.0) * t;
+    }
+}
+
+__host__ __device__ vec3 color_hit(const ray& r, const hitable_list& world)
+{
+    hit_record rec;
+
+    if (world.hit(r, 0.0, MAXFLOAT, rec))
+    {
+        vec3 N = rec.normal;
+        return vec3(N.x + 1 , N.y + 1 , N.z + 1) * 0.5;
+    }
+    else 
+    {  
         vec3 unit_direction = unit_vector(r.direction());
         float t = 0.5 * (unit_direction.y + 1.0);
         return  vec3(1.0f,1.0f,1.0f) * (1.0-t) +  vec3(0.5,0.7,1.0) * t;
     }
 }
 
-__global__ void MakeColor(vec3* OutColor,int width,int height)
+__global__ void MakeColor(sphere* input_list,int size ,vec3* OutColor,int width,int height)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     int j = blockDim.y * blockIdx.y + threadIdx.y;
@@ -63,9 +97,14 @@ __global__ void MakeColor(vec3* OutColor,int width,int height)
 
     float u = float(i) / float(width);
     float v = float(j) / float(height);
+
+    hitable_list hlist(input_list,size);
+
+    
+
     vec3 direct = (lower_left_corner + horizontal * u + vertical * v - origin);
     ray r(origin,direct);
-    auto tColor = color(r);
+    auto tColor = color_hit(r, hlist);
     OutColor[Index].x = tColor.x;
     OutColor[Index].y = tColor.y;
     OutColor[Index].z = tColor.z;
@@ -100,8 +139,8 @@ auto main() -> int
 {
 
     // 定义图像的宽度和高度
-    int nx = 1920;
-    int ny = 1080;  // 图像宽度（像素）
+    int nx = 2000;
+    int ny = 1000;  // 图像宽度（像素）
 
      // 1. 设置设备（若多GPU，需指定目标设备）
     CHECK(cudaSetDevice(0));  // 使用第0块GPU
@@ -122,12 +161,22 @@ auto main() -> int
     vec3* d_Output;
     cudaMalloc(&d_Output, size);
 
-   
+    // 4. 创建sphere
+    const int num = 2;
+    int hsize = sizeof(sphere) * num;
+    sphere* h_list = new sphere[num];
+    h_list[1] = sphere(vec3(0,-100.5,-1),100);
+    h_list[0] = sphere(vec3(0,0,-1),0.5);
+    
+
+    sphere* d_list;
+    cudaMalloc(&d_list, hsize);
+    cudaMemcpy(d_list, h_list, hsize, cudaMemcpyHostToDevice);
 
     dim3 blockDim(BLOCKNUM, 1024 / BLOCKNUM); // 如果是2维 一个block 最大为1024个线程；
     dim3 gridDim((nx + blockDim.x - 1) / blockDim.x,
                  (ny + blockDim.y - 1) / blockDim.y);
-    MakeColor<<<gridDim,blockDim>>>(d_Output,nx,ny);
+    MakeColor<<<gridDim,blockDim>>>(d_list, num, d_Output,nx,ny);
 
     cudaDeviceSynchronize();
     auto err = cudaGetLastError();  // 此时可捕获执行阶段的错误
