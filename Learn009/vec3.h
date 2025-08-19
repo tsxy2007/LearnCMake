@@ -117,11 +117,18 @@ __host__ __device__  inline vec3 operator/(const vec3& v1,const vec3& v2){
     return vec3(v1.x / v2.x,v1.y / v2.y,v1.z / v2.z);
 }
 
-__host__ __device__  inline vec3 operator*(const vec3& v1,float t){
+__host__ __device__  inline vec3 operator*(const vec3& v1,float t)
+{
     return vec3(v1.x * t,v1.y * t,v1.z * t);
 }
 
-__host__ __device__  inline vec3 operator/(const vec3& v1,float t){
+__host__ __device__  inline vec3 operator*(float t ,const vec3& v1)
+{
+    return vec3(v1.x * t,v1.y * t,v1.z * t);
+}
+
+__host__ __device__  inline vec3 operator/(const vec3& v1,float t)
+{
     return vec3(v1.x / t,v1.y / t,v1.z / t);
 }
 

@@ -12,6 +12,7 @@
 #include "sphere.h"
 #include "camera.h"
 #include <curand_kernel.h>  
+#include "material.h"
 
 #define BLOCKNUM 16
 
@@ -66,13 +67,13 @@ __host__ __device__ vec3 color(const ray& r)
     }
 }
 
-__device__ vec3 random_in_unit_sphere(curandState *local_rand_state) {
-    vec3 p;
-    do {
-        p = RANDVEC3 * 2.0f - vec3(1,1,1);
-    } while (p.squared_length() >= 1.0f);
-    return p;
-}
+// __device__ vec3 random_in_unit_sphere(curandState *local_rand_state) {
+//     vec3 p;
+//     do {
+//         p = RANDVEC3 * 2.0f - vec3(1,1,1);
+//     } while (p.squared_length() >= 1.0f);
+//     return p;
+// }
 
 __device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitable_list& world)
 {
@@ -113,7 +114,7 @@ __global__ void init_rand(curandState* rand_states, int width, int height,int sa
     // printf("init_rand = rand_states[%d]",idx);
 }
 
-__global__ void MakeColor(sphere* input_list,int size ,curandState* input_rand_states, vec3* OutColor,int width,int height,int samples_per_pixel)
+__global__ void MakeColor(sphere** input_list,int size ,curandState* input_rand_states, vec3* OutColor,int width,int height,int samples_per_pixel)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     int j = blockDim.y * blockIdx.y + threadIdx.y;
@@ -154,6 +155,22 @@ __global__ void AntiAliasing(vec3* Input_Color,int Sample_pix,int width,int heig
     Out_Color[ColorIndex] = vec3(sqrt(Out_Color[ColorIndex][0]),sqrt(Out_Color[ColorIndex][1]),sqrt(Out_Color[ColorIndex][2]));
 }
 
+// 创建元素
+__global__ void create_world(sphere **d_list, hitable **d_world, camera **d_camera) 
+{
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        d_list[0] = new sphere(vec3(0,0,-1), 0.5,
+                               new lambertian(vec3(0.8, 0.3, 0.3)));
+        d_list[1] = new sphere(vec3(0,-100.5,-1), 100,
+                               new lambertian(vec3(0.8, 0.8, 0.0)));
+        d_list[2] = new sphere(vec3(1,0,-1), 0.5,
+                               new metal(vec3(0.8, 0.6, 0.2), 1.0));
+        d_list[3] = new sphere(vec3(-1,0,-1), 0.5,
+                               new metal(vec3(0.8, 0.8, 0.8), 0.3));
+        *d_world  = new hitable_list(d_list,4);
+        *d_camera = new camera();
+    }
+}
 
 
 // 将帧缓冲区数据写入PPM文件
@@ -223,17 +240,17 @@ auto main() -> int
     cudaMalloc(&d_Output, size);
 
     // 4. 创建sphere
-    const int num = 2;
-    int hsize = sizeof(sphere) * num;
-    sphere* h_list = new sphere[num];
-    h_list[1] = sphere(vec3(0,-100.5,-1),100);
-    h_list[0] = sphere(vec3(0,0,-1),0.5);
+    const int num = 4;
+    sphere **d_list;
+    cudaMalloc((void **)&d_list, num*sizeof(sphere *));
+    hitable **d_world;
+    cudaMalloc((void **)&d_world, sizeof(hitable *));
+    camera **d_camera;
+    cudaMalloc((void **)&d_camera, sizeof(camera *));
+    create_world<<<1,1>>>(d_list,d_world,d_camera);
     
 
     // 5. 渲染主程序
-    sphere* d_list;
-    cudaMalloc(&d_list, hsize);
-    cudaMemcpy(d_list, h_list, hsize, cudaMemcpyHostToDevice);
     MakeColor<<<gridDim,blockDim>>>(d_list, num,d_rand_states, d_Output,nx,ny,samples_per_pixel);
     cudaDeviceSynchronize();
     auto err = cudaGetLastError();  // 此时可捕获执行阶段的错误
