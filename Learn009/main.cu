@@ -11,8 +11,9 @@
 #include "hitable_list.h"
 #include "sphere.h"
 #include "camera.h"
+#include <curand_kernel.h>  
 
-#define BLOCKNUM 32
+#define BLOCKNUM 16
 
 // 检查CUDA错误的宏
 #define CHECK(call) \
@@ -23,6 +24,8 @@
             exit(EXIT_FAILURE); \
         } \
     } while (0)
+
+#define RANDVEC3 vec3(curand_uniform(local_rand_state),curand_uniform(local_rand_state),curand_uniform(local_rand_state))
 
 __host__ __device__ bool equals(float a, float b)
 {
@@ -63,62 +66,95 @@ __host__ __device__ vec3 color(const ray& r)
     }
 }
 
-__host__ __device__ vec3 color_hit(const ray& r, const hitable_list& world)
-{
-    hit_record rec;
-
-    if (world.hit(r, 0.0, MAXFLOAT, rec))
-    {
-        vec3 N = rec.normal;
-        return vec3(N.x + 1 , N.y + 1 , N.z + 1) * 0.5;
-    }
-    else 
-    {  
-        vec3 unit_direction = unit_vector(r.direction());
-        float t = 0.5 * (unit_direction.y + 1.0);
-        return  vec3(1.0f,1.0f,1.0f) * (1.0-t) +  vec3(0.5,0.7,1.0) * t;
-    }
+__device__ vec3 random_in_unit_sphere(curandState *local_rand_state) {
+    vec3 p;
+    do {
+        p = RANDVEC3 * 2.0f - vec3(1,1,1);
+    } while (p.squared_length() >= 1.0f);
+    return p;
 }
 
-__global__ void MakeColor(sphere* input_list,int size ,vec3* OutColor,int width,int height)
+__device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitable_list& world)
+{
+
+    ray cur_ray = r;
+    float cur_attenuation = 1.0f;
+    for(int i = 0; i < 4; i++) 
+    {
+        hit_record rec;
+        if (world.hit(cur_ray, 0.001f, MAXFLOAT, rec)) 
+        {
+            vec3 target = rec.p + rec.normal + random_in_unit_sphere(LocalRandState);
+            cur_attenuation *= 0.5f;
+            cur_ray = ray(rec.p, target-rec.p);
+        }
+        else 
+        {
+            vec3 unit_direction = unit_vector(cur_ray.direction());
+            float t = (unit_direction.y + 1.0f) * 0.5f;
+            vec3 c = vec3(1.0, 1.0, 1.0) * (1.0f-t) + vec3(0.5, 0.7, 1.0) * t;
+            return  c * cur_attenuation;
+        }
+    }
+    return vec3(0.0,0.0,0.0);
+}
+
+// 随机数生成器初始化
+__global__ void init_rand(curandState* rand_states, int width, int height,int sample_pix) {
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    int z = threadIdx.z + blockIdx.z * blockDim.z;
+    
+    if (i >= width || j >= height || z >= sample_pix) return;
+    
+    int idx = z * width * height + j * width + i;
+    curand_init(1984 + idx, 0, 0, &rand_states[idx]);
+
+    // printf("init_rand = rand_states[%d]",idx);
+}
+
+__global__ void MakeColor(sphere* input_list,int size ,curandState* input_rand_states, vec3* OutColor,int width,int height,int samples_per_pixel)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     int j = blockDim.y * blockIdx.y + threadIdx.y;
+    int z = blockDim.z * blockIdx.z + threadIdx.z;
 
-    if (i >= width || j >= height) {
+    if (i >= width || j >= height || z >= samples_per_pixel) 
+    {
         return;
     }
-
-    vec3 lower_left_corner(-2.f,-1.f,-1.f);
-    vec3 horizontal(4.0f,0.f,0.f);
-    vec3 vertical(0.f,2.f,0.f);
-    vec3 origin(0.f,0.f,0.f);
+    int Index = z * width * height + j * width  +  i;
+    curandState LocalRandState = input_rand_states[Index];
     camera cam;
+    hitable_list hlist (input_list,size);
+    OutColor[Index] = color_hit(&LocalRandState,cam.get_ray(float(i + curand_uniform(&LocalRandState)) / float(width - 1),float(j + curand_uniform(&LocalRandState)) / float(height - 1)),hlist);
+}
 
-    int Index = j * width  +  i;
+// 抗锯齿
+__global__ void AntiAliasing(vec3* Input_Color,int Sample_pix,int width,int height,vec3* Out_Color)
+{
+    int u = blockDim.x * blockIdx.x + threadIdx.x;
+    int v = blockDim.y * blockIdx.y + threadIdx.y;
 
-    // float u = float(i) / float(width);
-    // float v = float(j) / float(height);
-
-    hitable_list hlist(input_list,size);
-
-    int ns = 100;
-
-    vec3 col(0.f,0.f,0.f);
-    for (int s = 0; s < ns; s++)
+    if ( u >= width || v >= height) 
     {
-        float u = float(i + 1) / float(width);
-        float v = float(j + 1) / float(height);
-        ray camRay = cam.get_ray(u,v);
-        vec3 p = camRay.point_at_parameter(2.0);
-        col += color(camRay);
+        return;
+    }
+    int ColorIndex = u + v * width;
+
+    // printf("AntiAliasing = u = [%d] v = [%d] \n",u,v);
+
+    for (int i = 0; i < Sample_pix ; i++) 
+    {
+        int Index = i * width * height + v * width + u;
+        Out_Color[ColorIndex] += Input_Color[Index];
     }
 
-    col /= float(ns);
-    OutColor[Index].x = col.x;
-    OutColor[Index].y = col.y;
-    OutColor[Index].z = col.z;
+    Out_Color[ColorIndex] /= (float)Sample_pix;
+    Out_Color[ColorIndex] = vec3(sqrt(Out_Color[ColorIndex][0]),sqrt(Out_Color[ColorIndex][1]),sqrt(Out_Color[ColorIndex][2]));
 }
+
+
 
 // 将帧缓冲区数据写入PPM文件
 void write_ppm(const std::string& filename, const vec3* framebuffer, int width, int height) {
@@ -149,8 +185,9 @@ auto main() -> int
 {
 
     // 定义图像的宽度和高度
-    int nx = 2000;
-    int ny = 1000;  // 图像宽度（像素）
+    const int nx = 2000;
+    const int ny = 1000;  // 图像宽度（像素）
+    const int samples_per_pixel = 10;
 
      // 1. 设置设备（若多GPU，需指定目标设备）
     CHECK(cudaSetDevice(0));  // 使用第0块GPU
@@ -161,11 +198,25 @@ auto main() -> int
     std::cout << "默认栈大小: " << currentStackSize << " 字节" << std::endl;
 
     // 3. 设置新的栈大小（例如 64KB）
-    size_t newStackSize = 64 * 1024;  // 64KB
+    size_t newStackSize = 256 * 1024;  // 64KB
     CHECK(cudaDeviceSetLimit(cudaLimitStackSize, newStackSize));
     std::cout << "已设置栈大小: " << newStackSize << " 字节" << std::endl;
 
-    int size = nx * ny * sizeof(vec3);
+
+    dim3 blockDim(BLOCKNUM, 16, 4); // 如果是2维 一个block 最大为1024个线程；
+    dim3 gridDim((nx + blockDim.x - 1) / blockDim.x,
+                 (ny + blockDim.y - 1) / blockDim.y,
+                (samples_per_pixel + blockDim.z -1) / blockDim.z);
+
+    // 初始化随机数生成器
+    curandState* d_rand_states;
+    cudaMalloc(&d_rand_states, nx * ny * samples_per_pixel * sizeof(curandState));
+
+    init_rand<<<gridDim, blockDim>>>(d_rand_states, nx, ny,samples_per_pixel);
+    cudaDeviceSynchronize();
+
+
+    int size = nx * ny * samples_per_pixel * sizeof(vec3);
     std::cout<< "size = " << size << " Vec3 size = " << sizeof(vec3) <<std::endl;
 
     vec3* d_Output;
@@ -179,20 +230,28 @@ auto main() -> int
     h_list[0] = sphere(vec3(0,0,-1),0.5);
     
 
+    // 5. 渲染主程序
     sphere* d_list;
     cudaMalloc(&d_list, hsize);
     cudaMemcpy(d_list, h_list, hsize, cudaMemcpyHostToDevice);
-
-    dim3 blockDim(BLOCKNUM, 1024 / BLOCKNUM); // 如果是2维 一个block 最大为1024个线程；
-    dim3 gridDim((nx + blockDim.x - 1) / blockDim.x,
-                 (ny + blockDim.y - 1) / blockDim.y);
-    MakeColor<<<gridDim,blockDim>>>(d_list, num, d_Output,nx,ny);
-
+    MakeColor<<<gridDim,blockDim>>>(d_list, num,d_rand_states, d_Output,nx,ny,samples_per_pixel);
     cudaDeviceSynchronize();
     auto err = cudaGetLastError();  // 此时可捕获执行阶段的错误
     printf("Error is %d \n",err);
+
+
+    // 6. 抗锯齿
+    vec3* d_Output_Color;
+    int rsize = nx * ny * sizeof(vec3);
+    cudaMalloc(&d_Output_Color, rsize);
+	dim3 bNum(32,32);
+	dim3 gNum((nx + bNum.x -1) / bNum.x ,(ny + bNum.y - 1) / bNum.y);
+    AntiAliasing<<<gNum,bNum>>>(d_Output, samples_per_pixel, nx, ny,d_Output_Color);
+
+    // 7. 输出到图片
     vec3* h_Output = new vec3[nx * ny];
-    cudaMemcpy(h_Output, d_Output, size, cudaMemcpyKind::cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_Output, d_Output_Color, rsize, cudaMemcpyKind::cudaMemcpyDeviceToHost);
+    cudaDeviceSynchronize();
 
     write_ppm("output.ppm", h_Output, nx, ny);
     
