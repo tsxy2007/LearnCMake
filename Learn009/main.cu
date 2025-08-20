@@ -91,7 +91,7 @@ __device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitabl
 {
 
     ray cur_ray = r;
-    vec3 cur_attenuation(0,0,0);
+    vec3 cur_attenuation(1,1,1);
     for(int i = 0; i < 4; i++) 
     {
         hit_record rec;
@@ -106,7 +106,7 @@ __device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitabl
             }
             else 
             {
-                return vec3(0,0,0);
+                return vec3(0,0,1);
             }
         }
         else 
@@ -117,7 +117,7 @@ __device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitabl
             return  c * cur_attenuation;
         }
     }
-    return vec3(0.0,0.0,0.0);
+    return vec3(1,0.0,0);
 }
 
 // 随机数生成器初始化
@@ -223,8 +223,8 @@ auto main() -> int
 {
 
     // 定义图像的宽度和高度
-    const int nx = 160;
-    const int ny = 80;  // 图像宽度（像素）
+    const int nx = 2000;
+    const int ny = 1000;  // 图像宽度（像素）
     const int samples_per_pixel = 10;
 
      // 1. 设置设备（若多GPU，需指定目标设备）
