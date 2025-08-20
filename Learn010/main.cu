@@ -283,8 +283,8 @@ int main() {
     // 图像参数
     const int width = 800;
     const int height = 600;
-    const int samples_per_pixel = 100; // 每个像素的采样数，影响抗锯齿效果
-    const int max_depth = 100; // 光线最大递归深度
+    const int samples_per_pixel = 10; // 每个像素的采样数，影响抗锯齿效果
+    const int max_depth = 10; // 光线最大递归深度
     
     // 分配帧缓冲区
     vec3* framebuffer = new vec3[width * height];

@@ -26,6 +26,18 @@
         } \
     } while (0)
 
+
+void check_cuda(cudaError_t result, char const *const func, const char *const file, int const line) {
+    if (result) {
+        std::cerr << "CUDA error = " << static_cast<unsigned int>(result) << " at " <<
+        file << ":" << line << " '" << func << "' \n";
+        // Make sure we call CUDA Device Reset before exiting
+        cudaDeviceReset();
+        exit(99);
+    }
+}
+
+#define checkCudaErrors(val) check_cuda( (val), #val, __FILE__, __LINE__ )
 #define RANDVEC3 vec3(curand_uniform(local_rand_state),curand_uniform(local_rand_state),curand_uniform(local_rand_state))
 
 __host__ __device__ bool equals(float a, float b)
@@ -79,15 +91,23 @@ __device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitabl
 {
 
     ray cur_ray = r;
-    float cur_attenuation = 1.0f;
+    vec3 cur_attenuation(0,0,0);
     for(int i = 0; i < 4; i++) 
     {
         hit_record rec;
         if (world.hit(cur_ray, 0.001f, MAXFLOAT, rec)) 
         {
-            vec3 target = rec.p + rec.normal + random_in_unit_sphere(LocalRandState);
-            cur_attenuation *= 0.5f;
-            cur_ray = ray(rec.p, target-rec.p);
+            ray scattered;
+            vec3 attenuation;
+            if (rec.mat_ptr->scatter(cur_ray, rec, attenuation, scattered, LocalRandState)) 
+            {
+                cur_attenuation *= attenuation;
+                cur_ray = scattered;
+            }
+            else 
+            {
+                return vec3(0,0,0);
+            }
         }
         else 
         {
@@ -101,7 +121,8 @@ __device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitabl
 }
 
 // 随机数生成器初始化
-__global__ void init_rand(curandState* rand_states, int width, int height,int sample_pix) {
+__global__ void init_rand(curandState* rand_states, int width, int height,int sample_pix)
+ {
     int i = threadIdx.x + blockIdx.x * blockDim.x;
     int j = threadIdx.y + blockIdx.y * blockDim.y;
     int z = threadIdx.z + blockIdx.z * blockDim.z;
@@ -202,25 +223,25 @@ auto main() -> int
 {
 
     // 定义图像的宽度和高度
-    const int nx = 2000;
-    const int ny = 1000;  // 图像宽度（像素）
+    const int nx = 160;
+    const int ny = 80;  // 图像宽度（像素）
     const int samples_per_pixel = 10;
 
      // 1. 设置设备（若多GPU，需指定目标设备）
-    CHECK(cudaSetDevice(0));  // 使用第0块GPU
+    checkCudaErrors(cudaSetDevice(0));  // 使用第0块GPU
 
     // 2. 查询当前栈大小限制
     size_t currentStackSize;
-    CHECK(cudaDeviceGetLimit(&currentStackSize, cudaLimitStackSize));
+    checkCudaErrors(cudaDeviceGetLimit(&currentStackSize, cudaLimitStackSize));
     std::cout << "默认栈大小: " << currentStackSize << " 字节" << std::endl;
 
     // 3. 设置新的栈大小（例如 64KB）
-    size_t newStackSize = 256 * 1024;  // 64KB
-    CHECK(cudaDeviceSetLimit(cudaLimitStackSize, newStackSize));
+    size_t newStackSize = 64 * 1024;  // 64KB
+    checkCudaErrors(cudaDeviceSetLimit(cudaLimitStackSize, newStackSize));
     std::cout << "已设置栈大小: " << newStackSize << " 字节" << std::endl;
 
 
-    dim3 blockDim(BLOCKNUM, 16, 4); // 如果是2维 一个block 最大为1024个线程；
+    dim3 blockDim(BLOCKNUM, 8, 4); // 如果是2维 一个block 最大为1024个线程；
     dim3 gridDim((nx + blockDim.x - 1) / blockDim.x,
                  (ny + blockDim.y - 1) / blockDim.y,
                 (samples_per_pixel + blockDim.z -1) / blockDim.z);

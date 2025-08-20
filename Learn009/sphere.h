@@ -7,7 +7,7 @@ class sphere : public hitable
 {
 public:
     __host__ __device__ sphere(): hitable(){}
-    __host__ __device__ sphere(vec3 cen, float r,material* m) : hitable(), center(cen),radius(r),mat_ptr(m){};
+    __host__ __device__ sphere(vec3 cen, float r,material* m) : center(cen),radius(r),mat_ptr(m){};
 
     __host__ __device__ virtual bool hit(const ray& r,float tmin,float tmax,hit_record& rec) const override;
 public:
@@ -32,6 +32,7 @@ bool sphere::hit(const ray& r,float tmin,float tmax,hit_record& rec) const
             rec.t = temp;
             rec.p = r.point_at_parameter(rec.t);
             rec.normal = (rec.p- center)/ radius;
+            rec.mat_ptr = mat_ptr;
             return true;
         }
         temp = (-b+sqrt(b*b-a*c)) / a ;
@@ -40,6 +41,7 @@ bool sphere::hit(const ray& r,float tmin,float tmax,hit_record& rec) const
             rec.t = temp;
             rec.p= r.point_at_parameter(rec.t);
             rec.normal = (rec.p - center) /radius;
+            rec.mat_ptr = mat_ptr;
             return true;
         }
     }
