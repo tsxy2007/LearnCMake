@@ -87,12 +87,12 @@ __host__ __device__ vec3 color(const ray& r)
 //     return p;
 // }
 
-__device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitable_list& world)
+__device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitable_list& world,int depth)
 {
 
     ray cur_ray = r;
     vec3 cur_attenuation(1,1,1);
-    for(int i = 0; i < 4; i++) 
+    for(int i = 0; i < depth; i++) 
     {
         hit_record rec;
         if (world.hit(cur_ray, 0.001f, MAXFLOAT, rec)) 
@@ -106,7 +106,8 @@ __device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitabl
             }
             else 
             {
-                return vec3(0,0,1);
+                cur_attenuation *= vec3(0,0,0);
+                break;
             }
         }
         else 
@@ -114,10 +115,11 @@ __device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitabl
             vec3 unit_direction = unit_vector(cur_ray.direction());
             float t = (unit_direction.y + 1.0f) * 0.5f;
             vec3 c = vec3(1.0, 1.0, 1.0) * (1.0f-t) + vec3(0.5, 0.7, 1.0) * t;
-            return  c * cur_attenuation;
+            cur_attenuation *=  c;
+            break;
         }
     }
-    return vec3(1,0.0,0);
+    return cur_attenuation;
 }
 
 // 随机数生成器初始化
@@ -135,7 +137,7 @@ __global__ void init_rand(curandState* rand_states, int width, int height,int sa
     // printf("init_rand = rand_states[%d]",idx);
 }
 
-__global__ void MakeColor(sphere** input_list,int size ,curandState* input_rand_states, vec3* OutColor,int width,int height,int samples_per_pixel)
+__global__ void MakeColor(sphere** input_list,int size ,curandState* input_rand_states, vec3* OutColor,int width,int height,int samples_per_pixel,int depth)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
     int j = blockDim.y * blockIdx.y + threadIdx.y;
@@ -149,7 +151,7 @@ __global__ void MakeColor(sphere** input_list,int size ,curandState* input_rand_
     curandState LocalRandState = input_rand_states[Index];
     camera cam;
     hitable_list hlist (input_list,size);
-    OutColor[Index] = color_hit(&LocalRandState,cam.get_ray(float(i + curand_uniform(&LocalRandState)) / float(width - 1),float(j + curand_uniform(&LocalRandState)) / float(height - 1)),hlist);
+    OutColor[Index] = color_hit(&LocalRandState,cam.get_ray(float(i + curand_uniform(&LocalRandState)) / float(width - 1),float(j + curand_uniform(&LocalRandState)) / float(height - 1)),hlist,depth);
 }
 
 // 抗锯齿
@@ -223,9 +225,10 @@ auto main() -> int
 {
 
     // 定义图像的宽度和高度
-    const int nx = 2000;
-    const int ny = 1000;  // 图像宽度（像素）
-    const int samples_per_pixel = 10;
+    const int nx = 1600;
+    const int ny = 800;  // 图像宽度（像素）
+    const int samples_per_pixel = 100;
+    const int depth = 100 ;
 
      // 1. 设置设备（若多GPU，需指定目标设备）
     checkCudaErrors(cudaSetDevice(0));  // 使用第0块GPU
@@ -272,7 +275,7 @@ auto main() -> int
     
 
     // 5. 渲染主程序
-    MakeColor<<<gridDim,blockDim>>>(d_list, num,d_rand_states, d_Output,nx,ny,samples_per_pixel);
+    MakeColor<<<gridDim,blockDim>>>(d_list, num,d_rand_states, d_Output,nx,ny,samples_per_pixel,depth);
     cudaDeviceSynchronize();
     auto err = cudaGetLastError();  // 此时可捕获执行阶段的错误
     printf("Error is %d \n",err);
