@@ -54,7 +54,13 @@ namespace ecs  // 定义ecs命名空间
     {
     public:
         friend class Commonds;  // 声明Commonds为友元类
+        friend class Resources;
+        friend class Queryer;
         using ComponentContainer = std::unordered_map<ComponentID, void*>;  // 组件容器类型别名
+
+        World() = default;
+        World(World&&) = delete;
+        World& operator=(World&&) = delete;
     private:
         // Pool结构体，用于管理组件对象池
         struct Pool final
@@ -156,22 +162,20 @@ namespace ecs  // 定义ecs命名空间
 
         struct ResourceInfo final
         {
-            void* resouce = nullptr;  // 资源实例
-            using CreateFunc = void* (*)();      // 创建函数指针类型
+            void* resource = nullptr;  // 资源实例
             using DestroyFunc = void (*)(void*); // 销毁函数指针类型
 
-            CreateFunc create;
             DestroyFunc destroy;
 
-            ResourceInfo(CreateFunc inCreate, DestroyFunc inDestroy)
-                :create(inCreate), destroy(inDestroy)
+            ResourceInfo(DestroyFunc inDestroy)
+                :destroy(inDestroy)
             {
-                assertm("you must give a non-null create or destory func", create && destroy);
+                assertm("you must give a non-null create or destory func", destroy);
             }
 
             ~ResourceInfo()
             {
-                destroy(resouce);
+                destroy(resource);
             }
         };
         std::unordered_map<ComponentID, ResourceInfo> resources_;
@@ -216,22 +220,26 @@ namespace ecs  // 定义ecs命名空间
 
 
         template<typename T>
-        Commonds& SetResource(T && resource)
-        { 
-            if (auto it = world_.resources_.find(IndexGetter<Resource>::Get<T>()); it != world_.resources_.end())
+        Commonds& SetResource(T&& resource)
+        {
+            auto index = IndexGetter<Resource>::Get<T>();
+            if (auto it = world_.resources_.find(index); it != world_.resources_.end())
             {
-                assertm("you can't set a resource twice", it->second.resouce);
-                it->second.resouce = new T(std::forward<T>(resource));
+                // 先释放原有资源
+                if (it->second.resource) {
+                    it->second.destroy(it->second.resource);
+                }
+                // 创建新资源
+                it->second.resource = new T(std::forward<T>(resource));
             }
             else
             {
-                auto Index = IndexGetter<Resource>::Get<T>();  // 获取共享资源类型ID
-                auto NewIt = world_.resources_.emplace(Index, World::ResourceInfo(
-                    []()->void* {return new T; },
+                auto NewIt = world_.resources_.emplace(index, World::ResourceInfo(
                     [](void* instance) {delete (T*)instance; }
                 ));
 
-                NewIt.first->second.resouce = NewIt.first->second.create();
+                // 使用传入的resource来创建资源，保持行为一致性
+                NewIt.first->second.resource = new T(std::forward<T>(resource));
             }
             return *this;
         }
@@ -241,8 +249,8 @@ namespace ecs  // 定义ecs命名空间
         {
             if (auto it = world_.resources_.find(IndexGetter<Resource>::Get<T>()); it != world_.resources_.end())
             {
-                delete (T*)it->second.resouce;
-                it->second.resouce = nullptr;
+                delete (T*)it->second.resource;
+                it->second.resource = nullptr;
             }
             return *this;
         }
@@ -278,5 +286,108 @@ namespace ecs  // 定义ecs命名空间
         }
     private:
         World& world_;  // World引用
+    };
+
+    class Resources {
+        public:
+            Resources(World& world): world_(world){}
+
+            template<typename T>
+            bool Has()
+            {
+                auto index = IndexGetter<Resource>::Get<T>();
+                auto it = world_.resources_.find(index);
+                return it != world_.resources_.end() && it->second.resource;
+            }
+
+            template<typename T>
+            T& Get()
+            {
+                auto index = IndexGetter<Resource>::Get<T>();
+                auto it = world_.resources_.find(index);
+                return *((T*)it->second.resource);
+            }
+    private:
+        World& world_;
+    };
+
+    class Queryer final
+    { 
+    public:
+        Queryer(World& world)
+            : world_(world)
+        {
+        }   
+
+        template<typename ... ComponentTypes>
+        std::vector<Entity> Query()
+        {
+            std::vector<Entity> entities;
+            doQuery<ComponentTypes...>(entities);
+            return entities;
+        }
+
+        template<typename T>
+        bool Has(Entity entity)
+        {
+            auto it = world_.entities_.find(entity);
+            auto Index = IndexGetter<Component>::Get<T>();
+            return it != world_.entities_.end() && it->second.find(Index) != it->second.end();
+        }
+
+        template<typename T>
+        T& Get(Entity entity)
+        {
+            auto it = world_.entities_.find(entity);
+            auto Index = IndexGetter<Component>::Get<T>();
+            return *((T*)it->second[Index]);
+        }
+    private:
+        template<typename T, typename ... Remains>
+        void doQuery(std::vector<Entity>& outEntities)
+        {
+            auto index = IndexGetter<Component>::Get<T>();
+            auto it = world_.componentMap_.find(index);
+            if (it == world_.componentMap_.end()) return;
+
+            for (const auto& entity : it->second.entitySet)
+            {
+                if constexpr (sizeof...(Remains) == 0)
+                {
+                    outEntities.push_back(entity);
+                }
+                else
+                {
+                    if (doQueryRemains<Remains...>(entity))
+                    {
+                        outEntities.push_back(entity);
+                    }
+                }
+            }
+        }
+
+        template<typename T, typename ... Remains>
+        bool doQueryRemains(Entity entity)
+        {
+            auto index = IndexGetter<Component>::Get<T>();
+            auto entityIt = world_.entities_.find(entity);
+            if (entityIt == world_.entities_.end() || entityIt->second.find(index) == entityIt->second.end())
+            {
+                return false;
+            }
+
+            if constexpr (sizeof...(Remains) == 0)
+            {
+                return true;
+            }
+            else
+            {
+                return doQueryRemains<Remains...>(entity);
+            }
+        }
+
+    private:
+
+        World& world_;
     };
 }

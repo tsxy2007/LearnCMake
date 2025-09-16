@@ -5,6 +5,7 @@
 #include <limits>
 #include <stdexcept>
 #include <algorithm>
+#include <functional>
 
 // 仅针对整数类型的SparseSet实现，使用固定大小的页结构
 template <typename T, size_t PageSize,
@@ -16,14 +17,10 @@ private:
     std::vector<std::unique_ptr<std::array<T, PageSize>>> sparse;  // 存储索引的稀疏页
     static constexpr T null = std::numeric_limits<T>::max();       // 表示空值的哨兵
 
-    // 计算元素所在的页索引
-    size_t getPageIndex(T element) const noexcept {
-        return static_cast<size_t>(element) / PageSize;
-    }
-
-    // 计算元素在页内的位置
-    size_t getPositionInPage(T element) const noexcept {
-        return static_cast<size_t>(element) % PageSize;
+    // 计算元素所在的页索引和页内位置
+    std::pair<size_t, size_t> getPageAndPosition(T element) const noexcept {
+        size_t index = static_cast<size_t>(element);
+        return { index / PageSize, index % PageSize };
     }
 
     // 确保稀疏页存在，如果不存在则创建
@@ -32,10 +29,18 @@ private:
             sparse.resize(pageIndex + 1);
         }
         if (!sparse[pageIndex]) {
-            sparse[pageIndex] = std::make_unique<std::array<T, PageSize>>();
-            // 初始化新页，所有位置都设为null
-            std::fill(sparse[pageIndex]->begin(), sparse[pageIndex]->end(), null);
+            auto page = std::make_unique<std::array<T, PageSize>>();
+            std::fill(page->begin(), page->end(), null);
+            sparse[pageIndex] = std::move(page);
         }
+    }
+
+    // 检查页是否存在且元素位置非空
+    bool isElementValid(T element) const noexcept {
+        if (element == null) return false;
+        auto [pageIndex, pos] = getPageAndPosition(element);
+        if (pageIndex >= sparse.size() || !sparse[pageIndex]) return false;
+        return sparse[pageIndex]->at(pos) != null;
     }
 
 public:
@@ -55,23 +60,17 @@ public:
 
     // 插入元素
     bool insert(T element) {
-        // 检查元素是否为null（无效值）
         if (element == null) {
             throw std::invalid_argument("Cannot insert null value");
         }
 
-        const size_t pageIndex = getPageIndex(element);
-        const size_t pos = getPositionInPage(element);
-
-        // 确保页存在
+        auto [pageIndex, pos] = getPageAndPosition(element);
         ensurePageExists(pageIndex);
 
-        // 检查元素是否已存在
         if (sparse[pageIndex]->at(pos) != null) {
             return false; // 元素已存在
         }
 
-        // 在dense数组中添加元素
         sparse[pageIndex]->at(pos) = static_cast<T>(dense.size());
         dense.push_back(element);
         return true;
@@ -79,60 +78,41 @@ public:
 
     // 移除元素
     bool erase(T element) {
-        if (element == null || !contains(element)) {
+        if (element == null || !isElementValid(element)) {
             return false;
         }
 
-        const size_t pageIndex = getPageIndex(element);
-        const size_t pos = getPositionInPage(element);
+        auto [pageIndex, pos] = getPageAndPosition(element);
+        T denseIndex = sparse[pageIndex]->at(pos);
 
-        // 获取元素在dense数组中的索引
-        const T denseIndex = sparse[pageIndex]->at(pos);
+        // 避免无符号溢出
+        if (dense.empty()) return false;
 
-        // 将dense数组中的最后一个元素移动到被删除元素的位置
         if (denseIndex != static_cast<T>(dense.size() - 1)) {
-            const T lastElement = dense.back();
+            T lastElement = dense.back();
             dense[denseIndex] = lastElement;
 
-            // 更新最后一个元素在sparse中的索引
-            const size_t lastPageIndex = getPageIndex(lastElement);
-            const size_t lastPos = getPositionInPage(lastElement);
+            auto [lastPageIndex, lastPos] = getPageAndPosition(lastElement);
             sparse[lastPageIndex]->at(lastPos) = denseIndex;
         }
 
-        // 移除dense数组中的最后一个元素
         dense.pop_back();
-
-        // 标记sparse中的位置为空
         sparse[pageIndex]->at(pos) = null;
-
         return true;
     }
 
     // 检查元素是否存在
     bool contains(T element) const {
-        if (element == null) {
-            return false;
-        }
-
-        const size_t pageIndex = getPageIndex(element);
-        // 检查页是否存在
-        if (pageIndex >= sparse.size() || !sparse[pageIndex]) {
-            return false;
-        }
-
-        const size_t pos = getPositionInPage(element);
-        return sparse[pageIndex]->at(pos) != null;
+        return isElementValid(element);
     }
 
     // 获取元素在dense数组中的索引
     T indexOf(T element) const {
-        if (!contains(element)) {
+        if (!isElementValid(element)) {
             return null;
         }
 
-        const size_t pageIndex = getPageIndex(element);
-        const size_t pos = getPositionInPage(element);
+        auto [pageIndex, pos] = getPageAndPosition(element);
         return sparse[pageIndex]->at(pos);
     }
 
@@ -154,10 +134,14 @@ public:
         return dense.empty();
     }
 
-    // 清空集合
+    // 清空集合（保留页结构）
     void clear() noexcept {
         dense.clear();
-        sparse.clear();
+        for (auto& page : sparse) {
+            if (page) {
+                std::fill(page->begin(), page->end(), null);
+            }
+        }
     }
 
     // 获取使用的页数量
@@ -168,5 +152,38 @@ public:
     // 获取页大小（模板参数）
     static constexpr size_t pageSize() noexcept {
         return PageSize;
+    }
+
+    // 添加foreach循环功能
+    template<typename Func>
+    void foreach(Func&& func) const {
+        for (const T& element : dense) {
+            func(element);
+        }
+    }
+
+    // 添加带索引的foreach循环功能
+    template<typename Func>
+    void foreach_with_index(Func&& func) const {
+        for (size_t i = 0; i < dense.size(); ++i) {
+            func(dense[i], i);
+        }
+    }
+
+    // 迭代器支持
+    typename std::vector<T>::const_iterator begin() const noexcept {
+        return dense.begin();
+    }
+
+    typename std::vector<T>::const_iterator end() const noexcept {
+        return dense.end();
+    }
+
+    typename std::vector<T>::const_iterator cbegin() const noexcept {
+        return dense.cbegin();
+    }
+
+    typename std::vector<T>::const_iterator cend() const noexcept {
+        return dense.cend();
     }
 };
