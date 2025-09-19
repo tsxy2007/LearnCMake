@@ -8,6 +8,9 @@
 
 #define assertm(msg,expr) assert(((void)msg,(expr))) // 定义带消息的断言宏
 
+//class Commonds;
+//class Queryer;
+//class Resources;
 namespace ecs  // 定义ecs命名空间
 {
     using ComponentID = uint32_t;  // 组件ID类型别名
@@ -49,6 +52,7 @@ namespace ecs  // 定义ecs命名空间
 
     using EntityGenerator = IDGenerator<Entity>; // 实体生成器别名
 
+
     // World类，ECS系统的核心，管理所有实体和组件
     class World final
     {
@@ -56,11 +60,34 @@ namespace ecs  // 定义ecs命名空间
         friend class Commonds;  // 声明Commonds为友元类
         friend class Resources;
         friend class Queryer;
+
+        using UpdateSystem = void (*)(Commonds, Queryer, Resources);
+        using StartupSystem = void (*)(Commonds);
         using ComponentContainer = std::unordered_map<ComponentID, void*>;  // 组件容器类型别名
 
         World() = default;
         World(World&&) = delete;
         World& operator=(World&&) = delete;
+
+        template<typename T>
+        World& SetResource(T&& resource);
+
+        World& AddStartupSystem(StartupSystem system)
+        {
+            startupSystems_.push_back(system);
+            return *this;
+        }
+
+        World& AddSystem(UpdateSystem system)
+        {
+            updateSystems_.push_back(system);
+            return *this;
+        }
+
+        inline void Startup();
+        inline void Update();
+        inline void Shutdown();
+
     private:
         // Pool结构体，用于管理组件对象池
         struct Pool final
@@ -153,6 +180,7 @@ namespace ecs  // 定义ecs命名空间
             ComponentInfo() :pool(nullptr, nullptr)
             {
             }
+
         };
 
         using ComponentPool = std::unordered_map<ComponentID, ComponentInfo>;  // 组件池类型别名
@@ -179,6 +207,9 @@ namespace ecs  // 定义ecs命名空间
             }
         };
         std::unordered_map<ComponentID, ResourceInfo> resources_;
+
+        std::vector<UpdateSystem> updateSystems_;
+        std::vector<StartupSystem> startupSystems_;
     };
 
     // Commonds类，用于执行创建/销毁实体等命令
@@ -390,4 +421,35 @@ namespace ecs  // 定义ecs命名空间
 
         World& world_;
     };
+
+    void World::Startup()
+    {
+        for (auto startupSystem : startupSystems_)
+        {
+            startupSystem(Commonds{*this});
+        }
+    }
+    
+    void World::Update()
+    {
+        for (auto updateSystem : updateSystems_)
+        {
+            updateSystem(Commonds{ *this }, Queryer{ *this }, Resources{ *this });
+        }
+    }
+
+    void World::Shutdown()
+    {
+        entities_.clear();
+        componentMap_.clear();
+        resources_.clear();
+    }
+
+    template<typename T>
+    inline World& World::SetResource(T&& resource)
+    {
+        Commonds commonds{ *this };
+        commonds.SetResource(std::forward<T>(resource));
+        return *this;
+    }
 }
