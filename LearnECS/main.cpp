@@ -49,12 +49,22 @@ void ECSUpdateIDSystem(ecs::Commonds& commonds, ecs::Queryer queryer, ecs::Resou
     }
 }
 
-void ECSUpdateTimerSystem(ecs::Commonds& commonds, ecs::Queryer& queryer, ecs::Resources& resources)
+void ECSUpdateTimerSystem(ecs::Commonds& commonds, ecs::Queryer queryer, ecs::Resources resources)
 {
     std::cout << "-----------------------------" << std::endl;
     for (auto entity : queryer.Query<Timer>())
     {
         std::cout << queryer.Get<Timer>(entity).time << std::endl;
+    }
+}
+
+void ECSUpdateTimerResource(ecs::Commonds& commonds, ecs::Queryer queryer, ecs::Resources resources)
+{
+    std::cout << "-----------------------------" << std::endl;
+    if (resources.Has<Timer>())
+    {
+        auto timerResource = resources.Get<Timer>();
+        std::cout << timerResource.time << std::endl;
     }
 }
 
@@ -65,7 +75,8 @@ int main()
     world.AddStartupSystem(StartupSystemFunc)
         .AddSystem(ECSUpdateNameSystem)
         .AddSystem(ECSUpdateNameAndIDSystem)
-        .AddSystem(ECSUpdateIDSystem);
+        .AddSystem(ECSUpdateIDSystem)
+        .AddSystem(ECSUpdateTimerResource);
     
     world.Startup();
 
