@@ -61,8 +61,8 @@ namespace ecs  // 定义ecs命名空间
         friend class Resources;
         friend class Queryer;
 
-        using UpdateSystem = void (*)(Commonds, Queryer, Resources);
-        using StartupSystem = void (*)(Commonds);
+        using UpdateSystem = void (*)(Commonds&, Queryer, Resources);
+        using StartupSystem = void (*)(Commonds&);
         using ComponentContainer = std::unordered_map<ComponentID, void*>;  // 组件容器类型别名
 
         World() = default;
@@ -216,6 +216,45 @@ namespace ecs  // 定义ecs命名空间
     class Commonds final
     {
     public:
+        using DestroyFunc = void(*)(void*);
+        using AssignFunc = std::function<void(void*)>;
+        using CreateFunc = std::function<void*()>;
+        struct ResourceDestroyInfo final
+        {
+            DestroyFunc destroy_;
+            uint32_t index_;
+            ResourceDestroyInfo(DestroyFunc destroy, uint32_t index)
+                : destroy_(destroy)
+                , index_(index)
+            {
+            }
+        };
+
+        struct ComponentSpawnInfo final
+        {
+            AssignFunc assign_;
+            World::Pool::CreateFunc create_;
+            World::Pool::DestroyFunc destroy_;
+            ComponentID index_;
+        };
+
+        struct EntitySpawnInfo final
+        {
+            Entity entity_;
+            std::vector<ComponentSpawnInfo> components;
+            EntitySpawnInfo(Entity entity)
+                : entity_(entity)
+            {
+            }
+        };
+
+        struct ResourceSpawnInfo final
+        {
+            CreateFunc create_;
+            World::Pool::DestroyFunc destroy_;
+            uint32_t index_;
+        };
+    public:
         // 构造函数，初始化World引用
         Commonds(World& world)
             : world_(world)
@@ -226,13 +265,122 @@ namespace ecs  // 定义ecs命名空间
         template<typename... ComponentTypes>
         Commonds& Spawn(ComponentTypes&& ... components)
         {
-            Entity entity = EntityGenerator::Gen();  // 生成新实体ID
-            doSpawn(entity, std::forward<ComponentTypes>(components)...);  // 执行创建
+            SpawnAndReturn<ComponentTypes...>(std::forward<ComponentTypes>(components)...);  // 执行创建
             return *this;  // 返回自身以支持链式调用
+        }
+
+        template<typename... ComponentTypes>
+        Entity SpawnAndReturn(ComponentTypes&& ... components)
+        {
+            EntitySpawnInfo info(EntityGenerator::Gen());
+            doSpawn(info.entity_,info.components, std::forward<ComponentTypes>(components)...);  // 执行创建
+            entitySpawnInfos_.push_back(info);
+            return info.entity_;  // 返回新创建的实体ID
         }
 
         // Destroy方法，销毁指定实体
         Commonds Destroy(Entity entity)
+        {
+            destoryEntities_.push_back(entity);
+            return *this;  // 返回自身以支持链式调用
+        }
+
+
+        template<typename T>
+        Commonds& SetResource(T&& resource)
+        {
+            ResourceSpawnInfo ResourceInfo;
+            ResourceInfo.index_ = IndexGetter<Resource>::Get<T>();
+            ResourceInfo.create_ = [resource = std::forward<T>(resource)]()->void* {
+                return new T(resource);
+            };
+            ResourceInfo.destroy_ = [](void* instance) {
+                delete (T*)instance;
+            };
+            resourceSpawnInfos_.push_back(ResourceInfo);
+            
+            return *this;
+        }
+
+        template<typename T>
+        Commonds& RemoveResource()
+        {
+            uint32_t index = IndexGetter<Resource>::Get<T>(); 
+            resourceDestroyInfos_.push_back(ResourceDestroyInfo(
+                [](void* instance) {delete (T*)instance; },
+                index
+            ));
+            return *this;
+        }
+
+        void Execute()
+        {
+            for (auto info : resourceDestroyInfos_)
+            {
+                removeResource(info);
+            }
+            for (auto e : destoryEntities_)
+            {
+                destroyEntity(e);
+            }
+
+            for (auto spawnInfo : entitySpawnInfos_)
+            {
+                auto it = world_.entities_.emplace(spawnInfo.entity_, World::ComponentContainer{});
+                auto& componentContainer = it.first->second;
+                for (auto& componentInfo : spawnInfo.components)
+                {
+                    componentContainer[componentInfo.index_] = doSpawnWithoutType(spawnInfo.entity_, componentInfo);
+                }
+            }
+
+            for (auto info : resourceSpawnInfos_)
+            {
+                setResource(info);
+            }
+        }
+    private:
+        // doSpawn方法，递归地为实体添加组件
+        template<typename T, typename ... Remains>
+        void doSpawn(Entity entity,std::vector<ComponentSpawnInfo>& ComponentSpawnInfos, T&& component, Remains&& ... remains)
+        {
+            ComponentSpawnInfo info;
+            info.index_ = IndexGetter<Component>::Get<T>();  // 获取组件类型ID
+            info.create_ = []()->void* {
+                return new T(); 
+            };          // 创建函数
+            info.destroy_ = [](void* instance) {
+                delete (T*)instance; 
+            }; // 销毁函数
+
+            info.assign_ = [=](void* instance) {
+                //static auto com = std::forward<T>(component);
+                *((T*)instance) = component;
+            };
+            ComponentSpawnInfos.push_back(info);
+            // 如果还有剩余组件，递归处理
+            if constexpr (sizeof...(Remains) != 0)
+            {
+                doSpawn<Remains...>(entity, ComponentSpawnInfos, std::forward<Remains>(remains)...);
+            }
+        }
+
+        void* doSpawnWithoutType(Entity entity, ComponentSpawnInfo& info)
+        {
+            if (auto it = world_.componentMap_.find(info.index_); it == world_.componentMap_.end())
+            {
+                world_.componentMap_.emplace(info.index_, World::ComponentInfo(info.create_, info.destroy_));
+            }
+            World::ComponentInfo& componentInfo = world_.componentMap_[info.index_];
+            void* elem = componentInfo.pool.Create();
+            info.assign_(elem);
+            componentInfo.AddEntity(entity);
+
+            return elem;
+        }
+
+        // Destroy方法，销毁指定实体
+        void destroyEntity(Entity entity)
         {
             // 查找实体
             if (auto it = world_.entities_.find(entity); it != world_.entities_.end())
@@ -246,14 +394,11 @@ namespace ecs  // 定义ecs命名空间
                 }
                 world_.entities_.erase(it);  // 从实体映射表中删除实体
             }
-            return *this;  // 返回自身以支持链式调用
         }
 
-
-        template<typename T>
-        Commonds& SetResource(T&& resource)
+        void setResource(const ResourceSpawnInfo& Info)
         {
-            auto index = IndexGetter<Resource>::Get<T>();
+            auto index = Info.index_;
             if (auto it = world_.resources_.find(index); it != world_.resources_.end())
             {
                 // 先释放原有资源
@@ -261,62 +406,37 @@ namespace ecs  // 定义ecs命名空间
                     it->second.destroy(it->second.resource);
                 }
                 // 创建新资源
-                it->second.resource = new T(std::forward<T>(resource));
+                it->second.resource = Info.create_();
             }
             else
             {
                 auto NewIt = world_.resources_.emplace(index, World::ResourceInfo(
-                    [](void* instance) {delete (T*)instance; }
+                    Info.destroy_
                 ));
 
                 // 使用传入的resource来创建资源，保持行为一致性
-                NewIt.first->second.resource = new T(std::forward<T>(resource));
+                NewIt.first->second.resource = Info.create_();
             }
-            return *this;
         }
 
-        template<typename T>
-        Commonds& RemoveResource()
+        void removeResource(const ResourceDestroyInfo& Info)
         {
-            if (auto it = world_.resources_.find(IndexGetter<Resource>::Get<T>()); it != world_.resources_.end())
+            if (auto it = world_.resources_.find(Info.index_); it != world_.resources_.end())
             {
-                delete (T*)it->second.resource;
+                Info.destroy_(it->second.resource);
                 it->second.resource = nullptr;
-            }
-            return *this;
-        }
-    private:
-        // doSpawn方法，递归地为实体添加组件
-        template<typename T, typename ... Remains>
-        void doSpawn(Entity entity, T&& component, Remains&& ... remains)
-        {
-            auto Index = IndexGetter<Component>::Get<T>();  // 获取组件类型ID
-            // 如果组件类型尚未注册
-            if (auto it = world_.componentMap_.find(Index); it == world_.componentMap_.end())
-            {
-                // 注册新组件类型
-                world_.componentMap_.emplace(Index, World::ComponentInfo(
-                    []()->void* {return new T(); },           // 创建函数
-                    [](void* instance) {delete (T*)instance; } // 销毁函数
-                ));
-            }
-            auto& componentInfo = world_.componentMap_[Index];  // 获取组件信息
-            void* elem = componentInfo.pool.Create();           // 创建组件实例
-            *((T*)elem) = std::forward<T>(component);           // 赋值组件数据
-            componentInfo.AddEntity(entity);                    // 添加实体到集合
-
-            // 在实体映射表中添加组件
-            auto it = world_.entities_.emplace(entity, World::ComponentContainer{});
-            it.first->second[Index] = elem;
-
-            // 如果还有剩余组件，递归处理
-            if constexpr (sizeof...(Remains) != 0)
-            {
-                doSpawn<Remains...>(entity, std::forward<Remains>(remains)...);
             }
         }
     private:
         World& world_;  // World引用
+
+        std::vector<Entity> destoryEntities_;
+
+        std::vector<ResourceDestroyInfo> resourceDestroyInfos_;
+
+        std::vector<EntitySpawnInfo> entitySpawnInfos_;
+
+        std::vector<ResourceSpawnInfo> resourceSpawnInfos_;
     };
 
     class Resources {
@@ -424,17 +544,34 @@ namespace ecs  // 定义ecs命名空间
 
     void World::Startup()
     {
-        for (auto startupSystem : startupSystems_)
+        std::vector<Commonds> commondsList;
+        for (auto sys : startupSystems_)
         {
-            startupSystem(Commonds{*this});
+            Commonds commonds{ *this };
+            sys(commonds);
+            commondsList.emplace_back(commonds);
+        }
+
+        for (auto& commond : commondsList)
+        {
+            commond.Execute();
         }
     }
     
     void World::Update()
     {
-        for (auto updateSystem : updateSystems_)
+
+        std::vector<Commonds> commondsList;
+        for (auto sys : updateSystems_)
         {
-            updateSystem(Commonds{ *this }, Queryer{ *this }, Resources{ *this });
+            Commonds commonds{ *this };
+            sys(Commonds{ *this }, Queryer{ *this }, Resources{ *this });
+            commondsList.emplace_back(commonds);
+        }
+
+        for (auto& commond : commondsList)
+        {
+            commond.Execute();
         }
     }
 

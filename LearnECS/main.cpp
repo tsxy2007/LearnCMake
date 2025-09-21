@@ -14,7 +14,7 @@ struct Timer final {
     int time = 123;
 };
 
-void StartupSystemFunc(ecs::Commonds commonds) 
+void StartupSystemFunc(ecs::Commonds& commonds)
 {
     commonds.Spawn(Name{ "person1" })
         .Spawn(Name{ "person2" }, ID{ 1 })
@@ -23,7 +23,7 @@ void StartupSystemFunc(ecs::Commonds commonds)
         .SetResource(Timer{ 222 });
 }
 
-void ECSUpdateNameSystem(ecs::Commonds commonds, ecs::Queryer queryer, ecs::Resources resources)
+void ECSUpdateNameSystem(ecs::Commonds& commonds, ecs::Queryer queryer, ecs::Resources resources)
 {
     std::cout << "-----------------------------" << std::endl;
     for (auto entity : queryer.Query<Name>()) {
@@ -31,7 +31,7 @@ void ECSUpdateNameSystem(ecs::Commonds commonds, ecs::Queryer queryer, ecs::Reso
     }
 }
 
-void ECSUpdateNameAndIDSystem(ecs::Commonds commonds, ecs::Queryer queryer, ecs::Resources resources)
+void ECSUpdateNameAndIDSystem(ecs::Commonds& commonds, ecs::Queryer queryer, ecs::Resources resources)
 {
     std::cout << "-----------------------------" << std::endl;
     for (auto entity : queryer.Query<Name, ID>())
@@ -40,7 +40,7 @@ void ECSUpdateNameAndIDSystem(ecs::Commonds commonds, ecs::Queryer queryer, ecs:
     }
 }
 
-void ECSUpdateIDSystem(ecs::Commonds commonds, ecs::Queryer queryer, ecs::Resources resources)
+void ECSUpdateIDSystem(ecs::Commonds& commonds, ecs::Queryer queryer, ecs::Resources resources)
 {
     std::cout << "-----------------------------" << std::endl;
     for (auto entity : queryer.Query<ID>()) 
