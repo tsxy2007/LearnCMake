@@ -76,6 +76,7 @@ int main()
         .AddSystem(ECSUpdateNameSystem)
         .AddSystem(ECSUpdateNameAndIDSystem)
         .AddSystem(ECSUpdateIDSystem)
+        .AddSystem(ECSUpdateTimerSystem)
         .AddSystem(ECSUpdateTimerResource);
     
     world.Startup();
