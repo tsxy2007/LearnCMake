@@ -1,69 +1,149 @@
-#pragma once  // ·ÀÖ¹Í·ÎÄ¼ş±»¶à´Î°üº¬
+ï»¿#pragma once  // é˜²æ­¢å¤´æ–‡ä»¶è¢«å¤šæ¬¡åŒ…å«
 
-#include <vector>        // °üº¬vectorÈİÆ÷
-#include <algorithm>     // °üº¬Ëã·¨¿â
-#include <cassert>       // °üº¬¶ÏÑÔºê
-#include <unordered_map> // °üº¬¹şÏ£±íÈİÆ÷
-#include "sparse_set.hpp" // °üº¬Ï¡Êè¼¯ºÏÍ·ÎÄ¼ş
+#include <vector>        // åŒ…å«vectorå®¹å™¨
+#include <algorithm>     // åŒ…å«ç®—æ³•åº“
+#include <cassert>       // åŒ…å«æ–­è¨€å®
+#include <unordered_map> // åŒ…å«å“ˆå¸Œè¡¨å®¹å™¨
+#include "sparse_set.hpp" // åŒ…å«ç¨€ç–é›†åˆå¤´æ–‡ä»¶
+#include <optional>
 
-#define assertm(msg,expr) assert(((void)msg,(expr))) // ¶¨Òå´øÏûÏ¢µÄ¶ÏÑÔºê
+#define assertm(msg,expr) assert(((void)msg,(expr))) // å®šä¹‰å¸¦æ¶ˆæ¯çš„æ–­è¨€å®
 
 //class Commonds;
 //class Queryer;
 //class Resources;
-namespace ecs  // ¶¨ÒåecsÃüÃû¿Õ¼ä
+namespace ecs  // å®šä¹‰ecså‘½åç©ºé—´
 {
-    using ComponentID = uint32_t;  // ×é¼şIDÀàĞÍ±ğÃû
-    using Entity = uint32_t;       // ÊµÌåÀàĞÍ±ğÃû
-    using SystemID = uint32_t;     // ÏµÍ³IDÀàĞÍ±ğÃû
+    using ComponentID = uint32_t;  // ç»„ä»¶IDç±»å‹åˆ«å
+    using Entity = uint32_t;       // å®ä½“ç±»å‹åˆ«å
+    using SystemID = uint32_t;     // ç³»ç»ŸIDç±»å‹åˆ«å
 
     struct Component final{};
     struct Resource final{};
 
-    // IndexGetterÀàÓÃÓÚ»ñÈ¡×é¼şÀàĞÍµÄÎ¨Ò»ID
+    template<typename T>
+    class EventStaging final
+    {
+    public:
+        static bool Has() 
+        {
+            return data_.has_value();
+        }
+
+        static void Set(const T& t)
+        {
+            data_ = t;
+        }
+
+        static T& Get()
+        {
+            return data_.value();
+        }
+
+        static void Clear()
+        {
+            data_ = std::nullopt;
+        }
+    private:
+        static inline std::optional<T> data_ = std::nullopt;
+    };
+
+    template<typename T>
+    class EventReader final
+    {
+    public:
+        EventReader() = default;
+        EventReader(EventReader&&) = delete;
+        EventReader& operator=(EventReader&&) = delete;
+
+        bool Has() const
+        {
+            return EventStaging<T>::Has();
+        }
+
+        T Read()
+        {
+            return EventStaging<T>::Get();
+        }
+
+    };
+
+    template<typename T>
+    class EventWriter final
+    {
+    public:
+        EventWriter() = default;
+        EventWriter(EventWriter&&) = delete;
+        EventWriter& operator=(EventWriter&&) = delete;
+
+        void Write(const T& t)
+        {
+            EventStaging<T>::Set(t);
+        }
+
+    };
+
+    class Events final
+    {
+    public:
+        template<typename T>
+        EventReader<T> Reader()
+        {
+            return EventReader<T>();
+        }
+
+        template<typename T>
+        EventWriter<T> Writer()
+        {
+            return EventWriter<T>();
+        }
+
+    };
+
+    // IndexGetterç±»ç”¨äºè·å–ç»„ä»¶ç±»å‹çš„å”¯ä¸€ID
     template<typename Category>
     class IndexGetter final
     {
     public:
-        // Ä£°å·½·¨£¬ÎªÃ¿ÖÖÀàĞÍTÉú³ÉÎ¨Ò»µÄComponentID
+        // æ¨¡æ¿æ–¹æ³•ï¼Œä¸ºæ¯ç§ç±»å‹Tç”Ÿæˆå”¯ä¸€çš„ComponentID
         template<typename T>
         static uint32_t Get()
         {
-            static uint32_t id = curIdx_++;  // ¾²Ì¬±äÁ¿±£Ö¤Ã¿ÖÖÀàĞÍÖ»ÓĞÒ»¸öID
+            static uint32_t id = curIdx_++;  // é™æ€å˜é‡ä¿è¯æ¯ç§ç±»å‹åªæœ‰ä¸€ä¸ªID
             return id;
         }
     private:
-        inline static uint32_t curIdx_ = 0;  // µ±Ç°ID¼ÆÊıÆ÷
+        inline static uint32_t curIdx_ = 0;  // å½“å‰IDè®¡æ•°å™¨
     };
 
-    // IDGenerator½á¹¹ÌåÓÃÓÚÉú³ÉÎ¨Ò»ID
+    // IDGeneratorç»“æ„ä½“ç”¨äºç”Ÿæˆå”¯ä¸€ID
     template<typename T, typename = std::enable_if<std::is_integral_v<T>>>
     struct IDGenerator final
     {
     public:
-        // Éú³ÉĞÂµÄID
+        // ç”Ÿæˆæ–°çš„ID
         static ComponentID Gen()
         {
-            return curIdx_++;  // ·µ»Øµ±Ç°ID²¢µİÔö
+            return curIdx_++;  // è¿”å›å½“å‰IDå¹¶é€’å¢
         }
     private:
-        inline static ComponentID curIdx_ = 0;  // ID¼ÆÊıÆ÷
+        inline static ComponentID curIdx_ = 0;  // IDè®¡æ•°å™¨
     };
 
-    using EntityGenerator = IDGenerator<Entity>; // ÊµÌåÉú³ÉÆ÷±ğÃû
+    using EntityGenerator = IDGenerator<Entity>; // å®ä½“ç”Ÿæˆå™¨åˆ«å
 
 
-    // WorldÀà£¬ECSÏµÍ³µÄºËĞÄ£¬¹ÜÀíËùÓĞÊµÌåºÍ×é¼ş
+    // Worldç±»ï¼ŒECSç³»ç»Ÿçš„æ ¸å¿ƒï¼Œç®¡ç†æ‰€æœ‰å®ä½“å’Œç»„ä»¶
     class World final
     {
     public:
-        friend class Commonds;  // ÉùÃ÷CommondsÎªÓÑÔªÀà
+        friend class Commonds;  // å£°æ˜Commondsä¸ºå‹å…ƒç±»
         friend class Resources;
         friend class Queryer;
 
         using UpdateSystem = void (*)(Commonds&, Queryer, Resources);
         using StartupSystem = void (*)(Commonds&);
-        using ComponentContainer = std::unordered_map<ComponentID, void*>;  // ×é¼şÈİÆ÷ÀàĞÍ±ğÃû
+        using ComponentContainer = std::unordered_map<ComponentID, void*>;  // ç»„ä»¶å®¹å™¨ç±»å‹åˆ«å
 
         World() = default;
         World(World&&) = delete;
@@ -89,26 +169,26 @@ namespace ecs  // ¶¨ÒåecsÃüÃû¿Õ¼ä
         inline void Shutdown();
 
     private:
-        // Pool½á¹¹Ìå£¬ÓÃÓÚ¹ÜÀí×é¼ş¶ÔÏó³Ø
+        // Poolç»“æ„ä½“ï¼Œç”¨äºç®¡ç†ç»„ä»¶å¯¹è±¡æ± 
         struct Pool final
         {
-            std::vector<void*> instances;  // ´æ´¢ËùÓĞÊµÀıµÄÏòÁ¿
-            std::vector<void*> cache;      // »º´æÒÑÏú»ÙµÄÊµÀı
+            std::vector<void*> instances;  // å­˜å‚¨æ‰€æœ‰å®ä¾‹çš„å‘é‡
+            std::vector<void*> cache;      // ç¼“å­˜å·²é”€æ¯çš„å®ä¾‹
 
-            using CreateFunc = void* (*)();      // ´´½¨º¯ÊıÖ¸ÕëÀàĞÍ
-            using DestroyFunc = void (*)(void*); // Ïú»Ùº¯ÊıÖ¸ÕëÀàĞÍ
+            using CreateFunc = void* (*)();      // åˆ›å»ºå‡½æ•°æŒ‡é’ˆç±»å‹
+            using DestroyFunc = void (*)(void*); // é”€æ¯å‡½æ•°æŒ‡é’ˆç±»å‹
 
-            CreateFunc create;   // ´´½¨º¯ÊıÖ¸Õë
-            DestroyFunc destroy; // Ïú»Ùº¯ÊıÖ¸Õë
+            CreateFunc create;   // åˆ›å»ºå‡½æ•°æŒ‡é’ˆ
+            DestroyFunc destroy; // é”€æ¯å‡½æ•°æŒ‡é’ˆ
 
-            // ¹¹Ôìº¯Êı£¬³õÊ¼»¯´´½¨ºÍÏú»Ùº¯Êı
+            // æ„é€ å‡½æ•°ï¼Œåˆå§‹åŒ–åˆ›å»ºå’Œé”€æ¯å‡½æ•°
             Pool(CreateFunc inCreate, DestroyFunc inDestroy)
                 : create(inCreate), destroy(inDestroy)
             {
                 assertm("you must give a non-null create or destory func", create && destroy);
             }
 
-            // Îö¹¹º¯Êı£¬Ïú»ÙËùÓĞÊµÀı
+            // ææ„å‡½æ•°ï¼Œé”€æ¯æ‰€æœ‰å®ä¾‹
             ~Pool()
             {
                 for (auto instance : instances)
@@ -117,81 +197,81 @@ namespace ecs  // ¶¨ÒåecsÃüÃû¿Õ¼ä
                 }
             }
 
-            // ´´½¨ĞÂÊµÀı
+            // åˆ›å»ºæ–°å®ä¾‹
             void* Create()
             {
                 void* instance = nullptr;
-                if (cache.empty())  // Èç¹û»º´æÎª¿Õ
+                if (cache.empty())  // å¦‚æœç¼“å­˜ä¸ºç©º
                 {
-                    instance = create();  // µ÷ÓÃ´´½¨º¯Êı
+                    instance = create();  // è°ƒç”¨åˆ›å»ºå‡½æ•°
                 }
-                else  // Èç¹û»º´æ²»Îª¿Õ
+                else  // å¦‚æœç¼“å­˜ä¸ä¸ºç©º
                 {
-                    instance = cache.back();  // ´Ó»º´æÖĞÈ¡
+                    instance = cache.back();  // ä»ç¼“å­˜ä¸­å–
                     cache.pop_back();
                 }
-                instances.push_back(instance);  // Ìí¼Óµ½ÊµÀıÁĞ±í
+                instances.push_back(instance);  // æ·»åŠ åˆ°å®ä¾‹åˆ—è¡¨
                 return instance;
             }
 
-            // Ïú»ÙÊµÀı
+            // é”€æ¯å®ä¾‹
             void Destroy(void* instance)
             {
-                // ²éÕÒÒªÏú»ÙµÄÊµÀı
+                // æŸ¥æ‰¾è¦é”€æ¯çš„å®ä¾‹
                 if (auto it = std::find(instances.begin(), instances.end(), instance);
                     it != instances.end())
                 {
-                    cache.push_back(*it);           // Ìí¼Óµ½»º´æ
-                    std::swap(*it, instances.back()); // Óë×îºóÒ»¸öÔªËØ½»»»
-                    instances.pop_back();           // É¾³ı×îºóÒ»¸öÔªËØ
+                    cache.push_back(*it);           // æ·»åŠ åˆ°ç¼“å­˜
+                    std::swap(*it, instances.back()); // ä¸æœ€åä¸€ä¸ªå…ƒç´ äº¤æ¢
+                    instances.pop_back();           // åˆ é™¤æœ€åä¸€ä¸ªå…ƒç´ 
                 }
                 else
                 {
-                    assertm("Invalid instance", false);  // ¶ÏÑÔÎŞĞ§ÊµÀı
+                    assertm("Invalid instance", false);  // æ–­è¨€æ— æ•ˆå®ä¾‹
                 }
             }
         };
 
-        // ComponentInfo½á¹¹Ìå£¬°üº¬×é¼ş³ØºÍÊµÌå¼¯ºÏ
+        // ComponentInfoç»“æ„ä½“ï¼ŒåŒ…å«ç»„ä»¶æ± å’Œå®ä½“é›†åˆ
         struct ComponentInfo final
         {
-            Pool pool;                           // ×é¼ş³Ø
-            SparseSet<Entity, 32> entitySet;      // ÊµÌå¼¯ºÏ
+            Pool pool;                           // ç»„ä»¶æ± 
+            SparseSet<Entity, 32> entitySet;      // å®ä½“é›†åˆ
 
-            // Ìí¼ÓÊµÌåµ½¼¯ºÏ
+            // æ·»åŠ å®ä½“åˆ°é›†åˆ
             void AddEntity(Entity entity)
             {
                 entitySet.insert(entity);
             }
 
-            // ´Ó¼¯ºÏÖĞÒÆ³ıÊµÌå
+            // ä»é›†åˆä¸­ç§»é™¤å®ä½“
             void RemoveEntity(Entity entity)
             {
                 entitySet.erase(entity);
             }
 
-            // ¹¹Ôìº¯Êı£¬³õÊ¼»¯×é¼ş³Ø
+            // æ„é€ å‡½æ•°ï¼Œåˆå§‹åŒ–ç»„ä»¶æ± 
             ComponentInfo(Pool::CreateFunc inCreate, Pool::DestroyFunc inDestroy)
                 : pool(inCreate, inDestroy)
             {
             }
 
-            // Ä¬ÈÏ¹¹Ôìº¯Êı
+            // é»˜è®¤æ„é€ å‡½æ•°
             ComponentInfo() :pool(nullptr, nullptr)
             {
             }
 
         };
 
-        using ComponentPool = std::unordered_map<ComponentID, ComponentInfo>;  // ×é¼ş³ØÀàĞÍ±ğÃû
-        ComponentPool componentMap_;  // ×é¼şÓ³Éä±í
+        using ComponentPool = std::unordered_map<ComponentID, ComponentInfo>;  // ç»„ä»¶æ± ç±»å‹åˆ«å
+        ComponentPool componentMap_;  // ç»„ä»¶æ˜ å°„è¡¨
 
-        std::unordered_map<Entity, ComponentContainer> entities_;  // ÊµÌåÓ³Éä±í
+        std::unordered_map<Entity, ComponentContainer> entities_;  // å®ä½“æ˜ å°„è¡¨
 
         struct ResourceInfo final
         {
-            void* resource = nullptr;  // ×ÊÔ´ÊµÀı
-            using DestroyFunc = void (*)(void*); // Ïú»Ùº¯ÊıÖ¸ÕëÀàĞÍ
+            void* resource = nullptr;  // èµ„æºå®ä¾‹
+            using DestroyFunc = void (*)(void*); // é”€æ¯å‡½æ•°æŒ‡é’ˆç±»å‹
 
             DestroyFunc destroy;
 
@@ -212,7 +292,7 @@ namespace ecs  // ¶¨ÒåecsÃüÃû¿Õ¼ä
         std::vector<StartupSystem> startupSystems_;
     };
 
-    // CommondsÀà£¬ÓÃÓÚÖ´ĞĞ´´½¨/Ïú»ÙÊµÌåµÈÃüÁî
+    // Commondsç±»ï¼Œç”¨äºæ‰§è¡Œåˆ›å»º/é”€æ¯å®ä½“ç­‰å‘½ä»¤
     class Commonds final
     {
     public:
@@ -255,34 +335,34 @@ namespace ecs  // ¶¨ÒåecsÃüÃû¿Õ¼ä
             uint32_t index_;
         };
     public:
-        // ¹¹Ôìº¯Êı£¬³õÊ¼»¯WorldÒıÓÃ
+        // æ„é€ å‡½æ•°ï¼Œåˆå§‹åŒ–Worldå¼•ç”¨
         Commonds(World& world)
             : world_(world)
         {
         }
 
-        // Spawn·½·¨£¬´´½¨´øÓĞÖ¸¶¨×é¼şµÄÊµÌå
+        // Spawnæ–¹æ³•ï¼Œåˆ›å»ºå¸¦æœ‰æŒ‡å®šç»„ä»¶çš„å®ä½“
         template<typename... ComponentTypes>
         Commonds& Spawn(ComponentTypes&& ... components)
         {
-            SpawnAndReturn<ComponentTypes...>(std::forward<ComponentTypes>(components)...);  // Ö´ĞĞ´´½¨
-            return *this;  // ·µ»Ø×ÔÉíÒÔÖ§³ÖÁ´Ê½µ÷ÓÃ
+            SpawnAndReturn<ComponentTypes...>(std::forward<ComponentTypes>(components)...);  // æ‰§è¡Œåˆ›å»º
+            return *this;  // è¿”å›è‡ªèº«ä»¥æ”¯æŒé“¾å¼è°ƒç”¨
         }
 
         template<typename... ComponentTypes>
         Entity SpawnAndReturn(ComponentTypes&& ... components)
         {
             EntitySpawnInfo info(EntityGenerator::Gen());
-            doSpawn(info.entity_,info.components, std::forward<ComponentTypes>(components)...);  // Ö´ĞĞ´´½¨
+            doSpawn(info.entity_,info.components, std::forward<ComponentTypes>(components)...);  // æ‰§è¡Œåˆ›å»º
             entitySpawnInfos_.push_back(info);
-            return info.entity_;  // ·µ»ØĞÂ´´½¨µÄÊµÌåID
+            return info.entity_;  // è¿”å›æ–°åˆ›å»ºçš„å®ä½“ID
         }
 
-        // Destroy·½·¨£¬Ïú»ÙÖ¸¶¨ÊµÌå
+        // Destroyæ–¹æ³•ï¼Œé”€æ¯æŒ‡å®šå®ä½“
         Commonds Destroy(Entity entity)
         {
             destoryEntities_.push_back(entity);
-            return *this;  // ·µ»Ø×ÔÉíÒÔÖ§³ÖÁ´Ê½µ÷ÓÃ
+            return *this;  // è¿”å›è‡ªèº«ä»¥æ”¯æŒé“¾å¼è°ƒç”¨
         }
 
 
@@ -340,25 +420,25 @@ namespace ecs  // ¶¨ÒåecsÃüÃû¿Õ¼ä
             }
         }
     private:
-        // doSpawn·½·¨£¬µİ¹éµØÎªÊµÌåÌí¼Ó×é¼ş
+        // doSpawnæ–¹æ³•ï¼Œé€’å½’åœ°ä¸ºå®ä½“æ·»åŠ ç»„ä»¶
         template<typename T, typename ... Remains>
         void doSpawn(Entity entity,std::vector<ComponentSpawnInfo>& ComponentSpawnInfos, T&& component, Remains&& ... remains)
         {
             ComponentSpawnInfo info;
-            info.index_ = IndexGetter<Component>::Get<T>();  // »ñÈ¡×é¼şÀàĞÍID
+            info.index_ = IndexGetter<Component>::Get<T>();  // è·å–ç»„ä»¶ç±»å‹ID
             info.create_ = []()->void* {
                 return new T(); 
-            };          // ´´½¨º¯Êı
+            };          // åˆ›å»ºå‡½æ•°
             info.destroy_ = [](void* instance) {
                 delete (T*)instance; 
-            }; // Ïú»Ùº¯Êı
+            }; // é”€æ¯å‡½æ•°
 
             info.assign_ = [=](void* instance) {
                 //static auto com = std::forward<T>(component);
                 *((T*)instance) = component;
             };
             ComponentSpawnInfos.push_back(info);
-            // Èç¹û»¹ÓĞÊ£Óà×é¼ş£¬µİ¹é´¦Àí
+            // å¦‚æœè¿˜æœ‰å‰©ä½™ç»„ä»¶ï¼Œé€’å½’å¤„ç†
             if constexpr (sizeof...(Remains) != 0)
             {
                 doSpawn<Remains...>(entity, ComponentSpawnInfos, std::forward<Remains>(remains)...);
@@ -379,20 +459,20 @@ namespace ecs  // ¶¨ÒåecsÃüÃû¿Õ¼ä
             return elem;
         }
 
-        // Destroy·½·¨£¬Ïú»ÙÖ¸¶¨ÊµÌå
+        // Destroyæ–¹æ³•ï¼Œé”€æ¯æŒ‡å®šå®ä½“
         void destroyEntity(Entity entity)
         {
-            // ²éÕÒÊµÌå
+            // æŸ¥æ‰¾å®ä½“
             if (auto it = world_.entities_.find(entity); it != world_.entities_.end())
             {
-                // ±éÀúÊµÌåµÄËùÓĞ×é¼ş
+                // éå†å®ä½“çš„æ‰€æœ‰ç»„ä»¶
                 for (auto& [index, component] : it->second)
                 {
-                    auto& componentInfo = world_.componentMap_[index];  // »ñÈ¡×é¼şĞÅÏ¢
-                    componentInfo.pool.Destroy(component);              // Ïú»Ù×é¼şÊµÀı
-                    componentInfo.RemoveEntity(entity);                 // ´ÓÊµÌå¼¯ºÏÖĞÒÆ³ı
+                    auto& componentInfo = world_.componentMap_[index];  // è·å–ç»„ä»¶ä¿¡æ¯
+                    componentInfo.pool.Destroy(component);              // é”€æ¯ç»„ä»¶å®ä¾‹
+                    componentInfo.RemoveEntity(entity);                 // ä»å®ä½“é›†åˆä¸­ç§»é™¤
                 }
-                world_.entities_.erase(it);  // ´ÓÊµÌåÓ³Éä±íÖĞÉ¾³ıÊµÌå
+                world_.entities_.erase(it);  // ä»å®ä½“æ˜ å°„è¡¨ä¸­åˆ é™¤å®ä½“
             }
         }
 
@@ -401,11 +481,11 @@ namespace ecs  // ¶¨ÒåecsÃüÃû¿Õ¼ä
             auto index = Info.index_;
             if (auto it = world_.resources_.find(index); it != world_.resources_.end())
             {
-                // ÏÈÊÍ·ÅÔ­ÓĞ×ÊÔ´
+                // å…ˆé‡Šæ”¾åŸæœ‰èµ„æº
                 if (it->second.resource) {
                     it->second.destroy(it->second.resource);
                 }
-                // ´´½¨ĞÂ×ÊÔ´
+                // åˆ›å»ºæ–°èµ„æº
                 it->second.resource = Info.create_();
             }
             else
@@ -414,7 +494,7 @@ namespace ecs  // ¶¨ÒåecsÃüÃû¿Õ¼ä
                     Info.destroy_
                 ));
 
-                // Ê¹ÓÃ´«ÈëµÄresourceÀ´´´½¨×ÊÔ´£¬±£³ÖĞĞÎªÒ»ÖÂĞÔ
+                // ä½¿ç”¨ä¼ å…¥çš„resourceæ¥åˆ›å»ºèµ„æºï¼Œä¿æŒè¡Œä¸ºä¸€è‡´æ€§
                 NewIt.first->second.resource = Info.create_();
             }
         }
@@ -428,7 +508,7 @@ namespace ecs  // ¶¨ÒåecsÃüÃû¿Õ¼ä
             }
         }
     private:
-        World& world_;  // WorldÒıÓÃ
+        World& world_;  // Worldå¼•ç”¨
 
         std::vector<Entity> destoryEntities_;
 
