@@ -4,7 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <ostream>
-#include <sys/select.h>
+#include <cfloat>
 #include "hitable.h"
 #include "vec3.h"
 #include "ray.h"
@@ -95,7 +95,7 @@ __device__ vec3 color_hit(curandState* LocalRandState,const ray& r, const hitabl
     for(int i = 0; i < depth; i++) 
     {
         hit_record rec;
-        if (world.hit(cur_ray, 0.001f, MAXFLOAT, rec)) 
+        if (world.hit(cur_ray, 0.001f, FLT_MAX, rec)) 
         {
             ray scattered;
             vec3 attenuation;
