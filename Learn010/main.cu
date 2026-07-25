@@ -515,7 +515,7 @@ int main()
     const int width = 4096;                // 图像宽度（像素）
     const int height = 2560;               // 图像高度（像素）
     const int samples_per_pixel = 100;  // 每像素采样数 → 抗锯齿质量
-    const int max_depth = 100 ;         // 光线最大弹射次数 → 间接光照深度
+    const int max_depth = 50;         // 光线最大弹射次数 → 间接光照深度
 
     // ==== 步骤 2：分配设备内存 ====
 
@@ -559,7 +559,7 @@ int main()
     CHECK(cudaMalloc(&d_rand_states, width * height * sizeof(curandState)));
 
     // 线程块 & 网格配置
-    // 每个 block 32×16 = 512 个线程，在大多数 GPU 上能充分占用 SM
+    // 每个 block 32×16 = 512 个线程（CUDA 上限 1024 线程/block，512 是安全值）
     dim3 block_dim(32, 16);
     // grid 覆盖所有像素（向上取整：多余的边界外线程会提前退出）
     dim3 grid_dim((width + block_dim.x - 1) / block_dim.x,
