@@ -175,58 +175,6 @@ __global__ void compute_max_diff(const float* x_new, const float* x_old,
 // ============================================================================
 
 /**
- * @brief 构造严格对角占优的线性方程组 Ax = b（含已知精确解）
- *
- * 严格对角占优：|a_ii| > sum_{j!=i} |a_ij|
- *   -> 保证 Jacobi 迭代收敛（迭代矩阵的谱半径 < 1）
- *
- * 构造方法：
- *   1. 随机填充非对角元素 a_ij（取值范围 [0, 1)）
- *   2. 对角元素 a_ii 设为"非对角绝对值之和 + 余量"
- *      余量越大 -> 对角占优越强 -> 收敛越快
- *   3. 由已知精确解 x_exact 反算 b = A * x_exact
- *      这样我们可以在求解后验证误差 ||x - x_exact||
- *
- * @param A        系数矩阵（host 端，行主序，大小 N*N）
- * @param b        右端项向量（host 端，大小 N）
- * @param x_exact  精确解向量（host 端，大小 N）
- * @param N        矩阵维度
- * @param seed     随机数种子（用于可重复性）
- */
-void generate_system(float* A, float* b, const float* x_exact, int N, unsigned int seed) {
-    srand(seed);
-
-    for (int i = 0; i < N; i++) {
-        float off_diag_sum = 0.0f;   // 第 i 行非对角元素绝对值之和
-
-        for (int j = 0; j < N; j++) {
-            if (i != j) {
-                // 随机非对角元素：[0, 1) / N，缩小后保证对角强占优
-                // 缩放原因：N 很大时若不缩放，off_diag_sum 约为 N/2，
-                // 而对角只比它大 1 -> 谱半径接近 1 -> 收敛极慢（上万次迭代）
-                float val = (float)(rand() % 100) / 100.0f / N;
-                A[i * N + j] = val;
-                off_diag_sum += fabsf(val);
-            }
-        }
-
-        // 对角元素：非对角和 + 1.0，保证严格对角占优且收敛快
-        // 缩放后 off_diag_sum 约 0.5，对角约 1.5 -> 谱半径约 0.33
-        // -> 收敛仅需约 12 次迭代（tolerance = 1e-6）
-        A[i * N + i] = off_diag_sum + 1.0f;
-    }
-
-    // 由精确解计算右端项：b = A * x_exact
-    for (int i = 0; i < N; i++) {
-        float sum = 0.0f;
-        for (int j = 0; j < N; j++) {
-            sum += A[i * N + j] * x_exact[j];
-        }
-        b[i] = sum;
-    }
-}
-
-/**
  * @brief CPU 雅可比求解器（用于正确性验证和性能对比）
  *
  * 与 GPU 版本算法完全相同，但单线程串行执行。
@@ -292,8 +240,8 @@ int main() {
 #endif
 
     // ==== 问题参数 ====
-    const int N = 2048;              // 矩阵维度（2048 x 2048）
-    const int max_iter = 10000;      // 最大迭代次数
+    const int N = 3;              // 矩阵维度
+    const int max_iter = 100;     // 最大迭代次数
     const float tolerance = 1e-6f;   // 收敛阈值（无穷范数）
 
     std::cout << "========================================" << std::endl;
@@ -301,19 +249,25 @@ int main() {
     std::cout << "  Matrix size: " << N << " x " << N << std::endl;
     std::cout << "========================================" << std::endl;
 
-    // ==== 步骤 1：在 CPU 上构造问题（对角占优矩阵 + 已知精确解）====
+    // ==== 步骤 1：在 CPU 上构造问题 ====
+    // 待解方程组：
+    //   5x + 1y + 1z =  8
+    //   1x + 6y + 2z = 10
+    //   2x + 1y + 7z = 12
+    // 逐行检查严格对角占优（|a_ii| > sum_{j!=i}|a_ij|）：
+    //   行 0: 5 > 1 + 1 = 2
+    //   行 1: 6 > 1 + 2 = 3
+    //   行 2: 7 > 2 + 1 = 3
+    // 因此 Jacobi 必收敛
+    std::vector<float> h_A = { 5.0f, 1.0f, 1.0f,   // 第 0 行
+                               1.0f, 6.0f, 2.0f,   // 第 1 行
+                               2.0f, 1.0f, 7.0f }; // 第 2 行
+    std::vector<float> h_b = { 8.0f, 10.0f, 12.0f };
 
-    std::vector<float> h_A((size_t)N * N);
-    std::vector<float> h_b(N);
-    std::vector<float> h_x_exact(N);
-
-    // 精确解设为全 1，便于直观验证收敛结果
-    for (int i = 0; i < N; i++) {
-        h_x_exact[i] = 1.0f;
-    }
-
-    generate_system(h_A.data(), h_b.data(), h_x_exact.data(), N, 42);
-    std::cout << "[1] Diagonally dominant system constructed" << std::endl;
+    std::cout << "[1] System constructed:" << std::endl;
+    std::cout << "    5x + 1y + 1z =  8" << std::endl;
+    std::cout << "    1x + 6y + 2z = 10" << std::endl;
+    std::cout << "    2x + 1y + 7z = 12" << std::endl;
 
     // ==== 步骤 2：分配设备内存 ====
 
@@ -399,15 +353,19 @@ int main() {
 
     // ==== 步骤 6：结果验证 ====
 
-    // 6a. 计算与精确解的误差（L2 范数和无穷范数）
-    float l2_error = 0.0f;
-    float max_error = 0.0f;
+    // 6a. 计算残差 ||Ax - b||（无穷范数与 L2 范数）
+    float l2_residual = 0.0f;
+    float max_residual = 0.0f;
     for (int i = 0; i < N; i++) {
-        float err = fabsf(h_x_gpu[i] - h_x_exact[i]);
-        l2_error += err * err;
-        if (err > max_error) max_error = err;
+        float ax = 0.0f;
+        for (int j = 0; j < N; j++) {
+            ax += h_A[i * N + j] * h_x_gpu[j];
+        }
+        float res = fabsf(ax - h_b[i]);
+        l2_residual += res * res;
+        if (res > max_residual) max_residual = res;
     }
-    l2_error = sqrtf(l2_error) / N;   // 归一化 L2 误差
+    l2_residual = sqrtf(l2_residual);
 
     std::cout << std::endl;
     std::cout << "----------------------------------------" << std::endl;
@@ -415,8 +373,8 @@ int main() {
     std::cout << "----------------------------------------" << std::endl;
     std::cout << "  Iterations:      " << iter << std::endl;
     std::cout << "  Final max diff:  " << h_max_diff << std::endl;
-    std::cout << "  L2 error:        " << l2_error << std::endl;
-    std::cout << "  Max error:       " << max_error << std::endl;
+    std::cout << "  L2 residual:     " << l2_residual << std::endl;
+    std::cout << "  Max residual:    " << max_residual << std::endl;
     std::cout << "  GPU time:        " << gpu_time_ms << " ms" << std::endl;
 
     // 6b. 吞吐量估算：每次迭代约 2*N^2 次浮点运算（N 个行向量点积）
@@ -437,11 +395,12 @@ int main() {
     std::cout << "  CPU vs GPU diff: " << cpu_gpu_diff
               << " (CPU iters: " << cpu_iters << ")" << std::endl;
 
-    // 6d. 打印前 5 个分量的对比（精确解 = 1.0）
+    // 6d. 打印解向量
     std::cout << std::endl;
-    std::cout << "  First 5 components (exact = 1.0):" << std::endl;
-    for (int i = 0; i < 5; i++) {
-        printf("    x[%d] = %.10f\n", i, h_x_gpu[i]);
+    std::cout << "  Solution:" << std::endl;
+    int print_count = N < 5 ? N : 5;   // 不超过 N，避免越界读取
+    for (int i = 0; i < print_count; i++) {
+        printf("    %c = %.10f\n", 'x' + i, h_x_gpu[i]);
     }
     std::cout << "----------------------------------------" << std::endl;
 
